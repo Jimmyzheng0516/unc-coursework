@@ -1,0 +1,363 @@
+---
+title: 'STOR_455_Homework_2'
+subtitle: '50 points - Due Wednesday 9/14 at 11:59pm'
+geometry: margin = 1.75cm
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+__Situation:__ Suppose that you are interested in purchasing a used vehicle. How much should you expect to pay?  Obviously the price will depend on the type of vehicle that you get (the model) and how much it's been used. For this assignment you will investigate how the price might depend on the vehicle's year and mileage.  
+ 
+__Data Source:__ To get a sample of vehicles, begin with the _vehiclesSE_ CSV file. The data was acquired by scraping Craigslist for vehicles for sale across the southeastern United States. For this assignment you will choose a vehicle _model_ for which there are between 100 and 300 of that model listed for sale in data. After constructing a subset of the _vehiclesSE_ data under these conditions, check to make sure that there is a reasonable amount of variability in the years for your vehicle, with a range of at least five years. Remove any vehicles with a price of $0.
+
+__Directions:__ The code below should walk you through the process of selecting data from a particular model vehicle of your choice. Each of the following two R chunks begin with {r, eval=FALSE}. eval=FALSE makes these chunks not run when I knit the file. Before you knit these chunks, you should revert them to {r}.
+
+```{r}
+library(readr)
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/anova455.R")
+
+# This line will only run if the vehiclesSE.csv is stored in the same directory as this notebook!
+vehiclesSE <- read_csv("vehiclesSE.csv", show_col_types = FALSE)
+
+
+# Creates a dataframe with the number of each model for sale in the data
+models_for_sale = as.data.frame(
+  table(
+    subset(vehiclesSE, price>0)$model
+      )
+    )
+
+# Renames the variables
+names(models_for_sale)[1] = "model"
+names(models_for_sale)[2] = "count"
+
+# Restricts the data to only models with at least 100 for sale
+# and no more than 300 for sale
+# Before submitting, comment this out so that it doesn't print while knitting
+just_right_amount = subset(models_for_sale, count >= 100 & count <= 300)
+```
+
+```{r}
+# Delete the ** below and enter the model that you chose from the just_right_amount data.
+ModelOfMyChoice = "cr-v"
+
+# Takes a subset of your model vehicles
+MyVehicles = subset(vehiclesSE, model==ModelOfMyChoice & price > 0)
+
+# Check to make sure that the vehicles span at least 6 years.
+range(MyVehicles$year)
+row.names(MyVehicles) = 1:nrow(MyVehicles)
+```
+
+\newpage
+
+#### MODEL #1: Use Odometer as a predictor for Price ####
+
+1.	Calculate the least squares regression line that best fits your data using _odometer_ as the predictor and _price_ as the response. Interpret (in context) what the slope estimate tells you about prices and odometer readings of your used vehicle model. Explain why the sign (positive/negative) makes sense.
+```{r}
+odometer = MyVehicles$odometer
+price = MyVehicles$price
+mod1 = lm(price~odometer, data = MyVehicles)
+summary(mod1)
+```
+Interpretation of the Slope Estimate: on average, the price of a used car tends to decrease by $-9.048e-02 for a 1-mile increment in the car's mileage. The negative sign of the slope estimate makes sense. As cars depreciate in value, used cars with high mileage deteriorate significantly in functionality and therefore have a lower demand and selling price.
+
+2.	Produce a scatterplot of the relationship with the regression line on it.
+```{r}
+plot(odometer, price)
+abline(mod1, col = "red")
+```
+
+3.	Produce appropriate residual plots and comment on how well your data appear to fit the conditions for a linear model. Don't worry about doing transformations at this point if there are problems with the conditions.
+```{r}
+plot(mod1,1)
+plot(mod1,2)
+plot(odometer, price)
+abline(mod1, col = "red")
+```
+Comments: it appears that the linear model does not fit the data pretty well. (1) Linearity is NOT met. From the residual-fitted value plot, we could observe a curved trend that the residuals first decrease then increase as fitted values increase. This trend is apparent in the region with high fitted values (small odometer). (2) Constant Variance is NOT met. From the scatterplot with the regression line, we could observe that the spread of points along the line is getting larger as odometer increases, especially in the region where mileage >= 2e+05. (3) Normality is Not met. From the QQ-norm plot, standardized residuals deviate from the qq-line either above or below, especially at the two tails.
+
+4.	Find the five vehicles in your sample with the largest residuals (in magnitude - positive or negative). For these vehicles, find their standardized and studentized residuals. Based on these specific residuals, would any of these vehicles be considered outliers? Based on these specific residuals, would any of these vehicles possibly be considered influential on your linear model? 
+```{r}
+model_indicies = sort(
+  abs(resid(mod1)), 
+  decreasing=TRUE, 
+  index.return=TRUE
+  )$ix[1:5]
+
+model_indicies
+```
+
+
+```{r}
+# 5 vehicles with the largest residuals
+residuals = mod1$residuals[model_indicies]
+
+```
+
+
+```{r}
+std_r_mod1 = rstandard(mod1)
+stu_r_mod1 = rstudent(mod1)
+
+# standardized residuals & studendized residuals
+df1 = as.data.frame(cbind(standardized_residuals = std_r_mod1[model_indicies], studendized_residuals = stu_r_mod1[model_indicies]))
+df1
+```
+
+```{r}
+# standardized residuals greater than 3
+stu_r_mod1[model_indicies][abs(std_r_mod1[model_indicies]) > 3]
+stu_r_mod1[model_indicies][abs(stu_r_mod1[model_indicies]) > 3]
+```
+
+All five vehicles are considered as outliers with both standardized and studentized residuals greater than 3.
+
+All five vehicles have significant studentized residuals (greater than 3), so all may considered as potential candidates of influential points.
+
+5.  Determine the leverages for the vehicles with the five largest absolute residuals. What do these leverage values say about the potential for each of these five vehicles to be influential on your model?
+```{r}
+# display influential points' row numbers and leverages
+lev_mod1 = hatvalues(mod1)[model_indicies] 
+lev_mod1
+```
+
+```{r}
+# leverage greater than 2*(2/n) but not 3*(2/n)
+lev_mod1[lev_mod1>(2*(2/length(mod1$resid))) & lev_mod1<=(3*(2/length(mod1$resid)))]
+```
+
+```{r}
+# leverage greater than 3*(2/n)
+lev_mod1[lev_mod1>(3*(2/length(mod1$resid)))]
+```
+Only the vehicle at row 145 is considered to be potentially influential as it has leverage greater 3 times (2/n). There is not any vehicle with leverage between 2 times (2/n) and 3 times (3/n). 
+
+6. Determine the Cook's distances for the vehicles with the five largest absolute residuals. What do these Cook's distances values say about the influence of each of these five vehicles on your model?
+```{r}
+# Display Cook's Distance
+cooks.distance(mod1)[model_indicies]
+```
+
+```{r}
+# Vehicles with Cook's Distance > 1.0
+cooks.distance(mod1)[model_indicies][cooks.distance(mod1)[model_indicies]>0.5]
+```
+
+These vehicles' Cook's Distance values tell us that it is likely that none of them is influential point as none of them has Cook's Distance > 0.5.
+
+7.	Compute and interpret in context a 95% confidence interval for the slope of your regression line. Interpret (in context) what the confidence interval for the slope tells you about prices and odometer readings of your used vehicle model.
+```{r}
+confint(mod1)[2, ]
+```
+Interpretation: on average, 95% of the times that the true value of the slope will be included in the confidence intervals constructed by repeated sampling process. Interpretations may be different in terms of Bayesian or Frequentist school of statistics. Since the true value is assumed to be fixed rather than with a prior distribution, I will use Frequentist interpretation that we could only say [-0.09795054, -0.08300677] contains the true value or not based on whatever the true value is assumed in the null hypothesis. In other words, the confidence interval [-0.09795054, -0.08300677] consists of all those values of B_0 for which the null hypothesis that B1 equals B_0 will not be rejected at significance level of 0.05.
+
+8.	Test the strength of the linear relationship between your variables using each of the three methods (test for correlation, test for slope, ANOVA for regression). Include hypotheses for each test and your conclusions in the context of the problem.
+```{r}
+cor.test(price, odometer)
+```
+
+
+```{r}
+summary(mod1)
+```
+
+
+```{r}
+anova455(mod1)
+```
+Correlation Tests:
+H0: correlation coefficient = 0
+Ha: correlation coefficient != 0
+Given the p-value < 2.2e-16 < 0.05 at conventional significance level of 5%, we have sufficient evidence to reject the null hypothesis that vehicle price and odometer are uncorrelated.
+
+Test for Slope:
+H0: B1 = 0
+Ha: B1 != 0
+Given the p-value < 2.2e-16 < 0.05 at conventional significance level of 5%, we have sufficient evidence to reject the null hypothesis that the true slope value of the regression model is zero.
+
+ANOVA for Regression:
+H0: B1 = 0
+Ha: B1 != 0
+Given the p-value < 2.2e-16 < 0.05 at conventional significance level of 5%, we have sufficient evidence to reject the null hypothesis that the true slope value of the regression model is zero, and we conclude that the second model (with B1 being included) fits the data better than the null model (without B1).
+
+9.	Suppose that you are interested in purchasing a vehicle of this model that has 50,000 miles on it. Determine each of the following: 95% confidence interval for the mean price at this odometer reading and 95% prediction interval for the price of an individual vehicle at this odometer reading. Write sentences that carefully interpret each of the intervals (in terms of vehicles prices).
+```{r}
+newx=data.frame(odometer=50000)
+
+predict.lm(mod1, newx, interval="confidence")
+predict.lm(mod1, newx, interval="prediction")
+```
+95% confidence interval in this case is the confidence interval for the mean of vehicle price in the conditional distribution when odometer=50,000, while the 95% prediction interval is the confidence interval for the individual vehicle price observations in the conditional distribution of price when odometer=50,000 if we repeat the sampling process infinitely many times. The 95% confidence interval [18308.77, 19653.54] consists of all those values of mean vehicle price mean_0 for which the null hypothesis that mean_Y equals mean_0 will not be rejected at significance level of 0.05. The 95% prediction interval[11388.7, 26573.62] consists of all those values of individual vehicle price Y_0 for which the null hypothesis that Y equals Y_0 will not be rejected at significance level of 0.05.
+
+10.	Experiment with some transformations to attempt to find one that seems to do a better job of satisfying the linear model conditions. Include the summary output for fitting that model and a scatterplot of the original data with this new model (which is likely a curve on the original data). Explain why you think that this transformation does or does not improve satisfying the linear model conditions.
+```{r}
+mod2 = lm(log(price)~odometer, data = MyVehicles)
+summary(mod2)
+plot(mod2, 1)
+plot(mod2, 2)
+b0 = summary(mod2)$coefficients[1,1]
+b1 = summary(mod2)$coefficients[2,1]
+plot(price~odometer)
+curve(exp(b0)*exp(b1*x), add = T, col = "red")
+
+```
+The log(y)~x model fits the data better. (1) Linearity is generally met. From the residual-fitted value plot, we could NOT observe an apparent curved trend of the residuals as fitted values increase. (2) Constant Variance is generally met. From the scatterplot with the regression line, we could observe that the spread of points along the line is roughly constant as the odometer increases. (3) Normality is mostly met. From the QQ-norm plot, standardized residuals adhere to the qq-line in all but a few values at low percentiles. The transformation model improves fitness since these three conditions are NOT met in the previous model.
+
+11.	According to your transformed model, is there a odometer reading at which the vehicle should be free?  If so, find this odometer reading and comment on what the "free vehicle" phenomenon says about the appropriateness of your model.
+
+No, my model assumes price=e^(b0)e^(b1*odometer), which is a horizontal asymptote at a price = 0, so the predicted price value could never be zero. This also enhances the appropriateness of my transformed model as the "free vehicle" phenomenon could not theoretically exist.
+
+12. Again suppose that you are interested in purchasing a vehicle of this model that has 50,000 miles on it. Determine each of the following using your transformed model: 95% confidence interval for the mean price at this odometer reading and 95% prediction interval for the price of an individual vehicle at this odometer reading. Write sentences that carefully interpret each of the intervals (in terms of vehicle prices).
+```{r}
+exp(predict.lm(mod2, newx, interval="confidence"))
+exp(predict.lm(mod2, newx, interval="prediction"))
+```
+95% confidence interval in this case is the confidence interval for the mean of vehicle price in the conditional distribution when odometer=50,000, while the 95% prediction interval is the confidence interval for the individual vehicle price observations in the conditional distribution of price when odometer=50,000 if we repeat the sampling process infinitely many times. The 95% confidence interval [16185.84, 20708.75] consists of all those values of mean vehicle price mean_0 for which the null hypothesis that mean_Y equals mean_0 will not be rejected at significance level of 0.05. The 95% prediction interval[4554.348, 73597.48] consists of all those values of individual vehicle price Y_0 for which the null hypothesis that Y equals Y_0 will not be rejected at significance level of 0.05.
+
+#### MODEL #2: Again use Odometer as a predictor for Price, but now for new data #### 
+
+13. Select a subset from the vehiclesCA dataset using the same _model_ vehicle that was used in the previous section, but now from vehicles for sale in California. You can mimic the code used above to select this new sample. You should again remove vehicles with a price of $0.   
+```{r}
+vehiclesCA <- read_csv("vehiclesCA.csv", show_col_types = FALSE)
+
+
+# Creates a dataframe with the number of each model for sale in the data
+models_for_sale_CA = as.data.frame(
+  table(
+    subset(vehiclesCA, price>0)$model
+      )
+    )
+
+# Renames the variables
+names(models_for_sale_CA)[1] = "model"
+names(models_for_sale_CA)[2] = "count"
+
+# Restricts the data to only models with at least 100 for sale
+# and no more than 300 for sale
+# Before submitting, comment this out so that it doesn't print while knitting
+just_right_amount = subset(models_for_sale_CA, count >= 100 & count <= 300)
+
+# Delete the ** below and enter the model that you chose from the just_right_amount data.
+ModelOfMyChoice_CA = "cr-v"
+
+# Takes a subset of your model vehicles
+MyVehicles_CA = subset(vehiclesCA, model==ModelOfMyChoice_CA & price > 0)
+
+# Check to make sure that the vehicles span at least 6 years.
+range(MyVehicles_CA$year)
+row.names(MyVehicles_CA) = 1:nrow(MyVehicles_CA)
+```
+
+14. Calculate the least squares regression line that best fits your new data and produce a scatterplot of the relationship with the regression line on it.
+
+```{r}
+price_CA = MyVehicles_CA$price
+odometer_CA = MyVehicles_CA$odometer
+mod_CA = lm(price_CA~odometer_CA) 
+plot(odometer_CA, price_CA)
+abline(mod_CA, col = "red")
+```
+
+15. How does the relationship between _price_ and _odometer_ for this new data compare to the regression model constructed in the first section? Does it appear that the relationship between _odometer_ and _price_ for your _model_ of vehicle is similar or different for the data from the southeastern Unites States versus California? Explain.
+```{r}
+summary(mod1)
+summary(mod_CA)
+
+par(mfrow=c(2:1))
+plot(mod_CA,1:2)
+plot(mod1,1:2)
+```
+The relationship is somewhat similar as the slope estimate magnitude of the new model is only slightly higher than the old one, -1.217e-01 (new) compared with -9.048e-02 (old), and prices in both models seem to display a negative relationship with the odometer. Comparing the residual plot and qq-plot, we observe that the residual trends and deviation pattern from the qq-line are also similar, and in fact, both models fit the sample data poorly.
+
+#### MODEL #3: Use Age as a predictor for Price ####
+
+16. Construct a new variable _age_ in your dataframe used in model #1 (your model car for sale in the southeastern US). The _age_ should be 2021 (the year that the data was scraped) minus the _year_ of the vehicle. Calculate the least squares regression line that best fits your data using _age_ as the predictor and _price_ as the response. Produce a scatterplot of the relationship with the regression line on it.
+```{r}
+MyVehicles$age = 2021-MyVehicles$year
+age = MyVehicles$age
+mod3 = lm(price~age)
+plot(age, price)
+abline(mod3, col ="red")
+```
+
+17.	Produce appropriate residual plots and comment on how well your data appear to fit the conditions for a simple linear model. Don't worry about doing transformations at this point if there are problems with the conditions.
+```{r}
+plot(mod3, 1)
+plot(mod3, 2)
+plot(age, price)
+abline(mod3, col ="red")
+```
+Comments: it appears that the linear model does not fit the data pretty well. (1) Linearity is NOT met. From the residual-fitted value plot, we could observe a curved trend that the residuals first decrease then increase as fitted values increase. (2) Constant Variance is NOT met. From the scatterplot with the regression line, we could observe that the spread of points along the line is getting larger as age increases, especially in the region where age >= 10. (3) Normality is Not met. From the QQ-norm plot, standardized residuals deviate from the qq-line, especially for data points at the two tails, either above or below.
+
+18. Experiment with some transformations to attempt to find one that seems to do a better job of satisfying the linear model conditions. Include the summary output for fitting that model and a scatterplot of the original data with this new model (which is likely a curve on the original data). Explain why you think that this transformation does or does not improve satisfying the linear model conditions.
+```{r}
+mod3_log = lm(log(price)~age)
+summary(mod3_log)
+b0 = summary(mod3_log)$coefficients[1,1]
+b1 = summary(mod3_log)$coefficients[2,1]
+plot(age, price)
+curve(exp(b0)*exp(b1*x), add = T, col = "red")
+plot(mod3_log, 1)
+plot(mod3_log, 2)
+```
+The log(y)~x model fits the data better. (1) Linearity is generally met. From the residual-fitted value plot, we could NOT observe an apparent curved trend of the residuals as fitted values increase. (2) Constant Variance is generally met. From the scatterplot with the regression line, we could observe that the spread of points along the line is roughly constant as the age increases. (3) Normality is mostly met. From the QQ-norm plot, standardized residuals adhere to the qq-line in all but a few values at low percentiles. The transformation model improves fitness since these three conditions are NOT met in the previous model.
+
+19. How do the transformed models, using either _age_ or _odometer_ as the predictor for your model of vehicle for sale compare? Does one of the models seem "better" or do they seem similar in their ability to predict _price_? Explain.
+```{r}
+summary(mod2)
+summary(mod3_log)
+
+par(mfrow=c(2:1))
+plot(mod2, 1:2)
+plot(mod3_log, 1:2)
+```
+
+Comment: The two models are pretty similar regarding the goodness of fit since they have similar adjusted R-squared (0.3491 vs. 0.4026), and patterns in residual plots and qq-line plots are also similar. The transformed models with age or odometer are basically the same, without one significantly better the other.
+
+#### MODEL #4: Use Age and Odometer as predictors for Price ####
+
+20. Construct a model using two predictors (_age_ and _odometer_) with _price_ as the response variable and provide the summary output.
+```{r}
+multi_mod = lm(price~age+odometer)
+summary(multi_mod)
+```
+
+21. Assess the importance of each of the predictors in the regression model - be sure to indicate the specific value(s) from the summary output you are using to make the assessments. Include hypotheses and conclusions in context.
+```{r}
+summary(multi_mod)
+```
+
+Each of the slope estimates has the following pair of hypotheses:
+Test for Slope (for i = 1,2):
+H0: Bi = 0
+Ha: Bi != 0
+Given for both slope estimates, the p-value < 2.2e-16 < 0.05 at conventional significance level of 5%, we have sufficient evidence to reject the null hypothesis that the true slope values for both age and odomether in the regression model are zero.
+
+22. Assess the overall effectiveness of this model (with a formal test). Again, be sure to include hypotheses and the specific value(s) you are using from the summary output to reach a conclusion.
+```{r}
+anova455(multi_mod)
+```
+Test for Model:
+H0: B1 = B2 = 0
+Ha: at least one of B1 or B2 != 0
+Given the p-value P(>F) is now 2.2e-16, smaller than any conventional significance level of 5%, we have sufficient evidence to reject the null hypothesis and conclude that the alternative model (with B1 and B2 included) fits the data better than the null model.
+
+23. Compute and interpret the variance inflation factor (VIF) for your predictors.
+```{r}
+library(car)
+cor_mod = lm(age~odometer)
+VIF=vif(multi_mod)
+VIF
+sqrt(VIF)
+```
+The VIF evaluates the multicollinearity between predictors and the extra variability added to the slope estimates by taking into account the multicollinearity, and the sqrt(VIF) = 1.699584 means that the standard error of the slope estimates has been inflated by a factor of 1.699584.
+
+24. Suppose that you are interested in purchasing a car of this model that is from the year 2017 with 50K miles. Determine each of the following: a 95% confidence interval for the mean price at this year and odometer reading, and a 95% prediction interval for the price of an individual car at this year and odometer reading. Write sentences that carefully interpret each of the intervals (in terms of car prices)
+```{r}
+newx2 = data.frame(age=4, odometer=50000)
+predict.lm(multi_mod, newx2, interval = "prediction")
+predict.lm(multi_mod, newx2, interval = "confidence")
+```
+95% confidence interval in this case is the confidence interval for the mean of vehicle price in the conditional distribution when age=4 and odometer=50,000, while the 95% prediction interval is the confidence interval for the individual vehicle price observations in the conditional distribution of price when age=4 and odometer=50,000 if we repeat the sampling process infinitely many times. The 95% confidence interval [19526.25, 20627.33] consists of all those values of mean vehicle price mean_0 for which the null hypothesis that mean_Y equals mean_0 will not be rejected at significance level of 0.05. The 95% prediction interval[14148.06, 26005.52] consists of all those values of individual vehicle price Y_0 for which the null hypothesis that Y equals Y_0 will not be rejected at significance level of 0.05.

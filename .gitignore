@@ -1,0 +1,8 @@
+*.csv
+*.parquet
+*.xlsx
+*.RData
+.Rhistory
+.ipynb_checkpoints/
+__pycache__/
+.DS_Store
