@@ -1,0 +1,720 @@
+---
+title: 'STOR 455 Homework #3'
+subtitle: 40 points - Due 9/28 at 11:59pm
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+__Directions:__ You will be assigned to a group of three to four students for this assignment. Parts 1, 2, & 5 should be submitted individually to Gradescope by each student in your group. Parts 3 & 4 should be submitted as a group to Gradescope. There are separate places to submit the individual and group portions of the assignment. 
+    
+__Situation:__ Can we predict the selling price of a house in Ames, Iowa based on recorded features of the house? That is your task for this assignment. Each group will have a dataset with information on forty potential predictors and the selling price (in $1,000’s) for a sample of homes. The data set for your group is in AmesTrain??.csv (where ?? corresponds to your group number) and can be found in the AmesTrain zipped file under class 14 in Sakai. A separate file identifies the variables in the Ames Housing data and explains some of the coding.
+
+### Part 1. Build an initial “basic” model ###    
+Your basic model can use any of the quantitative variables in the dataset but should NOT use the categorical variables, transformations, or interactions (we’ll discuss these in class soon) – those will come in a later assignment. Use your data to select a set of predictors to include in your model. Keep track of the process you use and decisions you make to arrive at an initial set of predictors. Your report should include a summary of this process. You don’t need to show all the output for every model you consider, but you should give a clear description of the path you took and the criteria that you used to compare competing models. Also, use at least two model selection methods to find a model (e.g. don’t just check all subsets, although it will work well here, this method will fail in future assignments).  
+    
+In addition to the commentary on model selection, include the following information for this initial choice of a model:
+
+* the summary() output for your model
+* comments on which (if any) of the predictors in the model are not significant at a 5% level
+* comments on what the VIF values tell you about the individual predictors in your model
+    
+Do not consider the Order variable (that is just an observation number) as one of your predictors. Avoid predictors that are exactly related. For example, if GroundSF=FirstSF+SecondSF you will likely get trouble if you try to put all three in the same model. 
+```{r}
+library(readr)
+library(car)
+library(tidyr)
+library(dplyr)
+library(leaps)
+library(corrplot)
+
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/ShowSubsets.R")
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/anova455.R")
+
+data_raw = read.csv("/Users/jimmyzheng0516/Desktop/AmesTrain21.csv")
+
+data1 = select_if(data_raw, is.numeric)[, -1]
+data1[is.na(data1) | data1=="Inf" | data1 == "NaN"] = NA
+data1[is.na(data1)] = 0
+
+Full = lm(data1$Price~., data = data1)
+none = lm(data1$Price~1, data = data1)
+MSE = (summary(Full)$sigma)^2
+
+# Forward Selection
+mod_for = step(none, scope=list(upper=Full), scale=MSE, direction="forward", trace=FALSE)
+
+# Backward Elimination
+mod_back = step(Full, scale=MSE, trace=FALSE)
+
+# Stepwise Regression
+mod_nodirect = step(none, scope=list(upper=Full), scale=MSE, trace = F)
+
+# Lowest Mellow Cp among All Subsets
+all = regsubsets(data1$Price~., data = data1)
+cp_col = which(ShowSubsets(all)[which.min(ShowSubsets(all)$Cp), ]=="*")
+mod_cp = lm(data1$Price~., data = data1[, cp_col])
+
+# Compare adjusted R^2
+summary(mod_for)$adj.r.squared
+summary(mod_back)$adj.r.squared
+summary(mod_nodirect)$adj.r.squared
+summary(mod_cp)$adj.r.squared
+
+# Final Model Chosen
+summary(mod_back)
+
+VIF = vif(mod_back)
+VIF
+length(which(VIF>=1))
+length(which(VIF<=2.5))
+length(which(VIF<=1.5))
+```
+The final model chosen is the one resulted from backward elimination as it produces the highest adjusted R^2 of 0.8606 among the four models selected. 
+The model predict Housing Price on LotFrontage, LotArea, Quality, Condition, YearBuilt, YearRemodel, BasementFinSF, BasementSF, GroundSF, FullBath, Bedroom, TotalRooms, Fireplaces, GarageSF and ScreenPorchSF. 
+
+Predictors "Condition", "ScreenPorchSF" and "FullBath" have p-values greater than 0.05 and are not significant at 5% significance level.
+
+It appears that the "GroundSF" has VIF greater than 5, which signifies that at least 80% of it is explained by other predictors. Among the 15 predictors, there are 11 predictors with VIF smaller than 2.5, 4 of which have VIF smaller than 1.5. This means that the majority of predictors have relatively low level of multicollinearity.
+
+### Part 2. Residual analysis for your basic model ###    
+Do a residual analysis for the model you chose in Part 1. Include any plots relevant to checking model conditions - with interpretations. Also check whether any of the data cases are unusual with respect to studentized residuals. Since there are a lot of data points don’t worry about the “mild” cases for studentized residuals, but indicate what specific criteria you are using to identify “unusual” points. 
+```{r}
+plot(mod_back, 1:2)
+rstudent(mod_back)[abs(rstudent(mod_back))>3]
+cooks.distance(mod_back)[cooks.distance(mod_back)>0.5 | cooks.distance(mod_back)>1]
+
+# Check severe outliers and influential points
+data1[which.max(abs(rstudent(mod_back))>3), ]
+data1[which(cooks.distance(mod_back)>0.5 | cooks.distance(mod_back)>1), ]
+
+summary(data1$LotArea)
+IQR=summary(data1$LotArea)[5]-summary(data1$LotArea)[2]
+(data1[which(cooks.distance(mod_back)>0.5 | cooks.distance(mod_back)>1), ]$LotArea-summary(data1$LotArea)[5])/IQR
+```
+(1) Linearity is NOT met. From the residual-fitted value plot, we could observe an apparent curved trend of the residual that it first decrease then increase as fitted value increases. (2) Normality is mostly met. From the QQ-norm plot, standardized residuals adhere to the qq-line in all but a few values at the two tails.
+
+There are 11 data points with studentized residuals greater than 3, being potential outliers. The outlier with the highest studentized residuals does not appear extremely unusual as it seems to be, so we do not consider dropping it from our model.
+
+Row 179 has a Cook's distance of 2.720389 > 1, which means that this point is  highly influential. In particular, row 179 has LotArea of 1590000 sq.ft deviating 38.83823 *IQR from the Q3 of LotArea(11347). Therefore, we consider this house as the extreme case in the sample data, also being highly influential, and it should be dropped from the data for the goodness of fit of the model.
+
+Adjust your model (either the predictors included or data values that are used to fit it, but not yet using transformations) on the basis of your residual analysis – but don’t worry too much about trying to get all conditions “perfect”.  For example, don’t automatically just delete any points that might give large residuals! If you do refit something, be sure to document what changed and include the new summary() output.
+```{r}
+data1_no179 = data1[-179, ]
+mod_no179 = lm(formula = data1_no179$Price ~ LotFrontage + LotArea + Quality + 
+    Condition + YearBuilt + YearRemodel + BasementFinSF + BasementSF + 
+    GroundSF + FullBath + Bedroom + TotalRooms + Fireplaces + 
+    GarageSF + ScreenPorchSF, data = data1_no179)
+
+summary(mod_no179)
+
+summary(mod_no179)$adj.r.squared
+summary(mod_back)$adj.r.squared
+```
+After deleting row 179, the influential point, the model produces higher adjusted R^2 from 0.8605986 to 0.8659517, which means that the adjusted model fits the data better than the unadjusted one.
+
+### Part 3: Find a “fancier model”: ###    
+    
+In addition to the quantitative predictors from Part 1, you may now consider models with:     
+
+* Transformations of predictors. You can include functions of quantitative predictors. Probably best to use the I() notation so you don’t need to create new columns when you run the predictions for the test data. For example:      lm(Price~LotArea+I(LotArea^2)+sqrt(LotArea)+log(LotArea),... 
+* Transformations of the response. You might address curvature or skewness in residual plots by transforming the response prices with a function like log(Price ), sqrt(Price), Price^2, etc..  These should generally not need the I( ) notation to make these adjustments.
+* Combinations of variables. This might include for example creating a new variable which would count the total bathrooms in the house in a single predictor.  
+
+Do not haphazardly use transformation on predictors, but examine the relationships between the predictors and response to determine when a transformation would be warranted. Again use multiple model selection methods to determine a best model, but now with transformed variables are possible predictors in the model.
+
+```{r}
+# 1. Price VS LotFrontage
+mod_lotf = lm(Price~LotFrontage, data=data1)
+plot(data1$Price~data1$LotFrontage)
+abline(mod_lotf)
+summary(mod_lotf)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$LotFrontage))
+plot(log(data1$Price)~data1$LotFrontage)
+
+# Transformation
+mod_lotf2 = lm(Price~I(LotFrontage^2), data=data1)
+mod_lotflog = lm(log(Price)~LotFrontage, data = data1)
+mod_lotflog2 = lm(log(Price)~I(LotFrontage^2), data = data1)
+summary(mod_lotf2)
+summary(mod_lotflog)
+summary(mod_lotflog2)
+
+# Check Condition
+plot(data1$Price~data1$LotFrontage)
+curve(summary(mod_lotf2)$coef[1,1]+summary(mod_lotf2)$coef[2,1]*x^2, add = T, col = "red")
+curve(exp(summary(mod_lotflog)$coef[1,1]+summary(mod_lotflog)$coef[2,1]*x), add = T, col = "green")
+curve(exp(summary(mod_lotflog2)$coef[1,1]+summary(mod_lotflog2)$coef[2,1]*x^2), add = T, col = "purple")
+abline(mod_lotf, col="blue")
+
+par(mfrow=c(2,2))
+plot(mod_lotf, 1:2)
+plot(mod_lotf2, 1:2)
+
+par(mfrow=c(2,2))
+plot(mod_lotflog, 1:2)
+plot(mod_lotflog2, 1:2)
+
+# Compare R^2
+summary(mod_lotf)$r.squared
+summary(mod_lotf2)$r.squared
+summary(mod_lotflog)$r.squared
+summary(mod_lotflog2)$r.squared
+```
+Among the 4 models, the fourth model (log(Price)~I(LotFrontage^2)) has the second largest R^2 (0.0608585) and better conforms to the linearity and normality conditions. 
+
+```{r}
+# 2. Price VS LotArea
+mod_lota = lm(Price~LotArea, data=data1)
+plot(data1$Price~data1$LotArea)
+abline(mod_lota)
+summary(mod_lota)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$LotArea))
+plot(data1$Price~log(data1$LotArea))
+
+# Transformation
+mod_lota_log1 = lm(data1$Price~log(data1$LotArea), data = data1)
+mod_lota_log2 = lm(log(Price)~log(LotArea), data = data1)
+summary(mod_lota_log1)
+summary(mod_lota_log2)
+
+# Check Condition
+plot(data1$Price~data1$LotArea)
+curve(summary(mod_lota_log1)$coef[1,1]+summary(mod_lota_log1)$coef[2,1]*log(x), add = T, col = "green")
+curve(exp(summary(mod_lota_log2)$coef[1,1])*x^(summary(mod_lota_log2)$coef[2,1]), add = T, col = "red")
+abline(mod_lota, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_lota, 1:2)
+plot(mod_lota_log1, 1:2)
+plot(mod_lota_log2, 1:2)
+
+# Compare R^2
+summary(mod_lota)$r.squared
+summary(mod_lota_log1)$r.squared
+summary(mod_lota_log2)$r.squared
+```
+Among the 3 models, the third model (log(Price)~log(LotArea)) has the largest R^2 (0.1375297) and better conforms to the linearity and normality conditions. 
+
+```{r}
+# 3. Price VS Quality
+mod_q = lm(Price~Quality, data=data1)
+plot(data1$Price~data1$Quality)
+abline(mod_q)
+summary(mod_q)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$Quality))
+plot(log(data1$Price)~data1$Quality)
+
+# Transformation
+mod_q2 = lm(Price~I(Quality^2), data = data1)
+mod_qlog = lm(log(Price)~Quality, data = data1)
+mod_qlog1 = lm(Price~log(Quality), data = data1)
+mod_qlog2 = lm(log(Price)~log(Quality), data=data1)
+summary(mod_q2)
+summary(mod_qlog)
+summary(mod_qlog1)
+summary(mod_qlog2)
+
+# Check Condition
+plot(data1$Price~data1$Quality)
+curve(summary(mod_q2)$coef[1,1]+summary(mod_q2)$coef[2,1]*x^2, add = T, col = "red")
+curve(exp(summary(mod_qlog)$coef[1,1]+summary(mod_qlog)$coef[2,1]*x), add = T, col = "orange")
+curve(summary(mod_qlog1)$coef[1,1]+summary(mod_qlog1)$coef[2,1]*log(x), add = T, col = "purple")
+curve(exp(summary(mod_qlog2)$coef[1,1])*x^(summary(mod_qlog2)$coef[2,1]), add=T, col = "green")
+abline(mod_q, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_q, 1:2)
+plot(mod_q2, 1:2)
+plot(mod_qlog, 1:2)
+
+par(mfrow=c(2,2))
+plot(mod_qlog1, 1:2)
+plot(mod_qlog2, 1:2)
+
+# Compare R^2
+summary(mod_q)$r.squared
+summary(mod_q2)$r.squared
+summary(mod_qlog)$r.squared
+summary(mod_qlog1)$r.squared
+summary(mod_qlog2)$r.squared
+```
+Among the 5 models, the third model (log(Price)~Quality) has the second largest R^2 (0.6819212) and better conforms to the linearity and normality conditions. 
+
+```{r}
+# 4. Price VS Condition
+mod_c = lm(Price~Condition, data=data1)
+plot(data1$Price~data1$Condition)
+abline(mod_c)
+summary(mod_c)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$Condition))
+plot(data1$Price~log(data1$Condition))
+
+# Transformation
+mod_c2 = lm(data1$Price~Condition+I(Condition^2), data=data1)
+mod_clog1 = lm(data1$Price~log(Condition), data=data1)
+mod_clog2 = lm(log(data1$Price)~log(Condition), data=data1)
+summary(mod_c2)
+summary(mod_clog1)
+summary(mod_clog2)
+
+# Check Condition
+plot(data1$Price~data1$Condition)
+curve(summary(mod_c2)$coef[1,1]+summary(mod_c2)$coef[2,1]*x+summary(mod_c2)$coef[3,1]*x^2, add = T, col = "red")
+curve(summary(mod_clog1)$coef[1,1]+summary(mod_clog1)$coef[2,1]*log(x), add = T, col = "purple")
+curve(exp(summary(mod_clog2)$coef[1,1])*x^(summary(mod_clog2)$coef[2,1]), add=T, col = "green")
+abline(mod_c, col="blue")
+
+par(mfrow=c(2,2))
+plot(mod_c, 1:2)
+plot(mod_c2, 1:2)
+
+par(mfrow=c(2,2))
+plot(mod_clog1, 1:2)
+plot(mod_clog2, 1:2)
+
+# Compare R^2
+summary(mod_c)$r.squared
+summary(mod_c2)$r.squared
+summary(mod_clog1)$r.squared
+summary(mod_clog2)$r.squared
+```
+Among the 4 models, the second model (data1$Price~Condition+I(Condition^2)) has the largest R^2 (0.02695651) and moderately conforms to the linearity and normality conditions. 
+
+```{r}
+# 5. Price VS YearBuilt
+mod_y = lm(Price~YearBuilt, data=data1)
+plot(data1$Price~data1$YearBuilt)
+abline(mod_y)
+summary(mod_y)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$YearBuilt))
+plot(data1$Price~log(data1$YearBuilt))
+
+# Transformation
+mod_y2 = lm(Price~I(data1$YearBuilt^2), data=data1)
+mod_ylog = lm(log(Price)~data1$YearBuilt, data=data1)
+mod_ylog1 = lm(Price~log(data1$YearBuilt), data=data1)
+mod_ylog2 = lm(log(Price)~log(data1$YearBuilt), data=data1)
+summary(mod_y2)
+summary(mod_ylog)
+summary(mod_ylog1)
+summary(mod_ylog2)
+
+# Check Condition
+plot(data1$Price~data1$YearBuilt)
+curve(summary(mod_y2)$coef[1,1]+summary(mod_y2)$coef[2,1]*x^2, add = T, col = "orange")
+curve(exp(summary(mod_ylog)$coef[1,1]+summary(mod_ylog)$coef[2,1]*x), add = T, col = "red")
+curve(summary(mod_ylog1)$coef[1,1]+summary(mod_ylog1)$coef[2,1]*log(x), add = T, col = "purple")
+curve(exp(summary(mod_ylog2)$coef[1,1])*x^(summary(mod_ylog2)$coef[2,1]), add=T, col = "green")
+abline(mod_y, col="blue")
+
+par(mfrow=c(2,2))
+plot(mod_y, 1:2)
+plot(mod_y2, 1:2)
+
+par(mfrow=c(3,2))
+plot(mod_ylog, 1:2)
+plot(mod_ylog1, 1:2)
+plot(mod_ylog2, 1:2)
+
+# Compare R^2
+summary(mod_y)$r.squared
+summary(mod_y2)$r.squared
+summary(mod_ylog)$r.squared
+summary(mod_ylog1)$r.squared
+summary(mod_ylog2)$r.squared
+```
+Among the 5 models, the third model (log(Price)~data1$YearBuilt) has the largest R^2 (0.4040594) and better conforms to the linearity and normality conditions. 
+
+```{r}
+# 6. Price VS YearRemodel
+mod_YR = lm(Price~YearRemodel, data = data1)
+plot(data1$Price~data1$YearRemodel)
+abline(mod_YR)
+summary(mod_YR)
+
+# Check log log
+plot(log(data1$Price)~log(data1$YearRemodel))
+plot(data1$Price~log(data1$YearRemodel))
+
+# Transformation
+mod_YR_log2 = lm(log(Price)~log(YearRemodel), data = data1)
+mod_YR_log1 = lm(Price~log(YearRemodel), data = data1)
+summary(mod_YR_log2)
+summary(mod_YR_log1)
+
+# Check Condition
+plot(Price~YearRemodel, data=data1)
+curve(exp(summary(mod_YR_log2)$coef[1,1])*x^(summary(mod_YR_log2)$coef[2,1]), add = T, col = "red")
+curve(summary(mod_YR_log1)$coef[1,1]+summary(mod_YR_log1)$coef[2,1]*log(x), add = T, col = "green")
+abline(mod_YR, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_YR, 1:2)
+plot(mod_YR_log2, 1:2)
+plot(mod_YR_log1, 1:2)
+
+# Compare R^2
+summary(mod_YR)$r.squared
+summary(mod_YR_log2)$r.squared
+summary(mod_YR_log1)$r.squared
+```
+Among the 3 models, the second model (log(Price)~log(YearRemodel) has the largest R^2 (0.3696603) and better conforms to the linearity and normality conditions.
+
+```{r}
+# 7. Price VS BasementFinSF 
+mod_BSF = lm(Price~BasementFinSF, data=data1)
+plot(data1$Price~data1$BasementFinSF)
+abline(mod_BSF)
+summary(mod_BSF)
+
+# Check log and x^2
+plot(log(data1$Price)~I(data1$BasementFinSF^2))
+
+
+# Transformation
+mod_BSF_log = lm(log(Price)~I(BasementFinSF^2), data = data1)
+summary(mod_BSF_log)
+
+
+# Check Condition
+plot(Price~BasementFinSF, data=data1)
+curve(exp(summary(mod_BSF_log)$coef[1,1])+(summary(mod_BSF_log)$coef[2,1])*x^2, add = T, col = "red")
+abline(mod_BSF, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_BSF, 1:2)
+plot(mod_BSF_log, 1:2)
+
+
+# Compare R^2
+summary(mod_BSF)$r.squared
+summary(mod_BSF_log)$r.squared
+```
+Among the 2 models, the second model (log(Price)~I(BasementFinSF^2)) has the larger R^2 (0.2220304) and better conforms to the linearity and normality conditions.
+
+```{r}
+# 8. Price VS BasementSF 
+mod_BF = lm(Price~BasementSF, data=data1)
+plot(data1$Price~data1$BasementSF)
+abline(mod_BF)
+summary(mod_BF)
+
+# Check log and x^2
+plot(log(data1$Price)~I(data1$BasementSF^2))
+
+
+# Transformation
+mod_BF_log = lm(log(Price)~I(BasementSF^2), data = data1)
+summary(mod_BF_log)
+
+
+# Check Condition
+plot(Price~BasementSF, data=data1)
+curve(exp(summary(mod_BF_log)$coef[1,1])+(summary(mod_BF_log)$coef[2,1])*x^2, add = T, col = "red")
+abline(mod_BF, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_BF, 1:2)
+plot(mod_BF_log, 1:2)
+
+
+# Compare R^2
+summary(mod_BF)$r.squared
+summary(mod_BF_log)$r.squared
+```
+Among the 2 models, the second model (log(Price)~I(BasementSF^2)) has the smaller R^2 (0.4217387) but better conforms to the linearity and normality conditions.
+```{r}
+# 9. Price VS GroundSF 
+mod_GF = lm(Price~GroundSF, data=data1)
+plot(data1$Price~data1$GroundSF)
+abline(mod_GF)
+summary(mod_GF)
+
+# Check log log
+plot(log(data1$Price)~log(data1$GroundSF))
+
+
+# Transformation
+mod_GF_log = lm(log(Price)~log(GroundSF), data = data1)
+summary(mod_GF_log)
+
+
+# Check Condition
+plot(Price~GroundSF, data=data1)
+curve(exp(summary(mod_GF_log)$coef[1,1])*x^(summary(mod_GF_log)$coef[2,1]), add=T)
+abline(mod_GF, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_GF, 1:2)
+plot(mod_GF_log, 1:2)
+
+
+# Compare R^2
+summary(mod_GF)$r.squared
+summary(mod_GF_log)$r.squared
+```
+Among the 2 models, the second model (log(Price)~log(GroundSF)) has the larger R^2 (0.4995431) and better conforms to the linearity and normality conditions.
+
+```{r}
+# 10. Price VS FullBath 
+mod_FB = lm(Price~ FullBath, data=data1)
+plot(data1$Price~data1$FullBath)
+abline(mod_FB)
+summary(mod_FB)
+
+# Check log and x^2
+plot(log(data1$Price)~I(data1$FullBath^2))
+
+
+
+# Transformation
+mod_FB_log = lm(log(Price)~I(FullBath^2), data = data1)
+summary(mod_FB_log)
+
+
+# Check Condition
+plot(Price~FullBath, data=data1)
+curve(exp(summary(mod_FB_log)$coef[1,1])+(summary(mod_FB_log)$coef[2,1])*x^2, add=T)
+abline(mod_FB, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_FB, 1:2)
+plot(mod_FB_log, 1:2)
+
+
+# Compare R^2
+summary(mod_FB)$r.squared
+summary(mod_FB_log)$r.squared
+```
+Among the 2 models, the second model (log(Price)~I(FullBath^2)) has the larger R^2 (0.2887462) and better conforms to the linearity and normality conditions.
+
+```{r}
+# 11. Price VS Bedroom
+mod_bd = lm(Price~Bedroom, data=data1)
+plot(data1$Price~data1$Bedroom)
+abline(mod_bd)
+summary(mod_bd)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$Bedroom))
+plot(data1$Price~log(data1$Bedroom))
+
+# Transformation
+mod_bd2 = lm(Price~Bedroom+I(data1$Bedroom^2), data=data1)
+mod_bdlog = lm(log(Price)~Bedroom, data = data1)
+summary(mod_bd2)
+summary(mod_bdlog)
+
+# Check Condition
+plot(data1$Price~data1$Bedroom)
+curve(summary(mod_bd2)$coef[1,1]+summary(mod_bd2)$coef[2,1]*x+summary(mod_bd2)$coef[3,1]*x^2, add = T, col = "red")
+curve(exp(summary(mod_bdlog)$coef[1,1]+summary(mod_bdlog)$coef[2,1]*x), add = T, col = "green")
+abline(mod_bd, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_bd, 1:2)
+plot(mod_bd2, 1:2)
+plot(mod_bdlog, 1:2)
+
+# Compare R^2
+summary(mod_bd)$r.squared
+summary(mod_bd2)$r.squared
+summary(mod_bdlog)$r.squared
+```
+Among the 3 models, the third model (log(Price)~Bedroom) has the largest R^2 (0.01333232) and better conforms to the linearity and normality conditions.
+
+```{r}
+# 12. Price VS TotalRooms
+mod_tr = lm(Price~TotalRooms, data=data1)
+plot(data1$Price~data1$TotalRooms)
+abline(mod_tr)
+summary(mod_tr)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$TotalRooms))
+plot(data1$Price~log(data1$TotalRooms))
+
+# Transformation
+mod_tr2 = lm(Price~TotalRooms+I(data1$TotalRooms^2), data=data1)
+mod_trlog = lm(log(Price)~TotalRooms, data = data1)
+summary(mod_tr2)
+summary(mod_trlog)
+
+# Check Condition
+plot(data1$Price~data1$TotalRooms)
+curve(summary(mod_tr2)$coef[1,1]+summary(mod_tr2)$coef[2,1]*x+summary(mod_tr2)$coef[3,1]*(x^2), add = T, col = "red")
+curve(exp(summary(mod_trlog)$coef[1,1]+summary(mod_trlog)$coef[2,1]*x), add = T, col = "green")
+abline(mod_tr, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_tr, 1:2)
+plot(mod_tr2, 1:2)
+plot(mod_trlog, 1:2)
+
+# Compare R^2
+summary(mod_tr)$r.squared
+summary(mod_tr2)$r.squared
+summary(mod_trlog)$r.squared
+```
+Among the 3 models, the third model (log(Price)~TotalRooms) has similar R^2 (0.1940305) and better conforms to the linearity and normality conditions.
+
+```{r}
+# 13. Price VS Fireplaces
+mod_fp = lm(Price~Fireplaces, data=data1)
+plot(data1$Price~data1$Fireplaces)
+abline(mod_fp)
+summary(mod_fp)
+
+# Check log-log
+plot(log(data1$Price)~log(data1$Fireplaces))
+plot(data1$Price~log(data1$Fireplaces))
+
+# Transformation
+mod_fplog2 = lm(log(Price)~I(Fireplaces^2), data = data1)
+summary(mod_fplog2)
+
+# Check Condition
+plot(data1$Price~data1$Fireplaces)
+curve(exp(summary(mod_fplog2)$coef[1,1]+summary(mod_fplog2)$coef[2,1]*x^2), add = T, col = "red")
+abline(mod_fp, col="blue")
+
+par(mfrow=c(2,2))
+plot(mod_fp, 1:2)
+plot(mod_fplog2, 1:2)
+
+# Compare R^2
+summary(mod_fp)$r.squared
+summary(mod_fplog2)$r.squared
+```
+Among the 2 models, the untransformed model (Price~Fireplaces) has much larger R^2 (0.233707) and moderately conforms to the linearity and normality conditions. Therefore, we choose the untransformed model to be the optimal model.
+
+```{r}
+# 14. Price VS GarageSF
+mod_GF = lm(Price~GarageSF, data=data1)
+plot(data1$Price~data1$GarageSF)
+abline(mod_GF)
+summary(mod_GF)
+
+# Check log
+plot(log(data1$Price)~data1$GarageSF)
+
+# Transformation
+mod_GF_log = lm(log(Price)~GarageSF, data = data1)
+summary(mod_GF_log)
+
+# Check Condition
+plot(Price~GarageSF, data=data1)
+curve(exp(summary(mod_GF_log)$coef[1,1])+(summary(mod_GF_log)$coef[2,1])*(x), add = T, col = "red" )
+abline(mod_GF, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_GF, 1:2)
+plot(mod_GF_log, 1:2)
+
+# Compare R^2
+summary(mod_GF)$r.squared
+summary(mod_GF_log)$r.squared
+```
+Among the 2 models, the second model (log(Price)~GarageSF) has the smaller R^2 (0.4071922) but better conforms to the linearity and normality conditions.
+
+```{r}
+# 15. Price VS ScreenPorchSF
+mod_SP = lm(Price~ScreenPorchSF, data=data1)
+plot(data1$Price~data1$ScreenPorchSF)
+abline(mod_SP)
+summary(mod_SP)
+
+# Check log and x^2
+plot(log(data1$Price)~I(data1$ScreenPorchSF^2))
+
+# Transformation
+mod_SP_log = lm(log(Price)~I(ScreenPorchSF^2), data = data1)
+summary(mod_SP_log)
+
+# Check Condition
+plot(Price~ScreenPorchSF, data=data1)
+curve(exp(summary(mod_SP_log)$coef[1,1])+(summary(mod_SP_log)$coef[2,1]*x^2),add = T, col = "red")
+abline(mod_SP, col="blue")
+
+par(mfrow=c(3,2))
+plot(mod_SP, 1:2)
+plot(mod_SP_log, 1:2)
+
+# Compare R^2
+summary(mod_SP)$r.squared
+summary(mod_SP_log)$r.squared
+```
+Among the 2 models, the second model (log(Price)~I(ScreenPorchSF^2)) has the larger R^2 (0.01512572) and better conforms to the linearity and normality conditions.
+
+```{r}
+# The Fancier Model
+mod_fancy = lm(log(Price)~I(LotFrontage^2) + log(LotArea) + Quality + Condition + I(Condition^2)+ YearBuilt + log(YearRemodel) + I(BasementFinSF^2) + I(BasementSF^2) + log(GroundSF) + 
+    I(FullBath^2) + Bedroom + TotalRooms + Fireplaces + GarageSF + 
+    I(ScreenPorchSF^2), data = data1)
+
+summary(mod_back)
+summary(mod_fancy)
+
+# Check the condition
+par(mfrow=c(2,2))
+plot(mod_back, 1:2)
+plot(mod_fancy, 1:2)
+
+# Compare the Adjusted R^2
+summary(mod_back)$adj.r.squared
+summary(mod_fancy)$adj.r.squared
+```
+The fancier, transformed model better conforms to the linearity and normality conditions and has higher adjusted R^2 (0.8805507) than the untransformed one.
+
+__Discuss the process that you used to transform the predictors and/or response so that you could use this process in the future on a new data set.__
+
+### Part 4. Residual analysis for your fancier model ###    
+
+Repeat the residual analysis from Part 2 on your new model constructed in Part 3. A residual analysis was likely (hopefully) part of your process for determining your "fancier" model. That does not need to be repeated here as long as you clearly discuss your process.
+
+```{r}
+plot(mod_fancy, 1:2)
+rstudent(mod_fancy)[abs(rstudent(mod_fancy))>3]
+cooks.distance(mod_fancy)[cooks.distance(mod_fancy)>0.5 | cooks.distance(mod_fancy)>1]
+
+# Check severe outliers and influential points
+data1[which.max(abs(rstudent(mod_fancy))>3), ]
+data1[which(cooks.distance(mod_fancy)>0.5 | cooks.distance(mod_fancy)>1), ]
+
+summary(data1$Price)
+IQR1=summary(data1$Price)[5]-summary(data1$Price)[2]
+IQR1
+(data1[which(cooks.distance(mod_fancy)>0.5 | cooks.distance(mod_fancy)>1), ]$Price-summary(data1$Price)[2])/IQR1
+```
+(1) Linearity is met. From the residual-fitted value plot, we could NOT observe an apparent curved trend of the residual as fitted value increases. (2) Normality is mostly met. From the QQ-norm plot, standardized residuals adhere to the qq-line in all but a few values at the two tails.
+
+There are 6 data points with studentized residuals greater than 3, being potential outliers.The outlier with the highest studentized residuals does not appear extremely unusual as it seems to be, so we do not consider dropping it from our model.
+
+Row 299 has a Cook's distance of 1.394822  > 1, which means that this point is highly influential. However, row 299 has price of 12.789 thousand of dollar only deviating -1.295026  *IQR from the Q1 of Price (129.50). Therefore, we consider this house as the acceptable case in the sample data, although being highly influential, and it should NOT be dropped from the data for the goodness of fit of the model.
+
+Conclusion: no point should be dropped from the "fancy" model.
+
+### Part 5. Final model ###     
+
+Suppose that you are interested in a house in Ames that has the characteristics listed below. Construct a 95% confidence interval for the mean price of such houses.
+
+A 2 story 11 room home, built in 1987 and remodeled in 1999 on a 21540 sq. ft. lot with 328 feet of road frontage. Overall quality is good (7) and condition is average (5). The quality and condition of the exterior are both good (Gd) and it has a poured concrete foundation. There is an 757 sq. foot basement that has excellent height, but is completely unfinished and has no bath facilities. Heating comes from a gas air furnace that is in excellent condition and there is central air conditioning. The house has 2432 sq. ft. of living space above ground, 1485 on the first floor and 947 on the second, with 4 bedrooms, 2 full and one half baths, and 1 fireplace. The 2 car, built-in garage has 588 sq. ft. of space and is average (TA) for both quality and construction. The only porches or decks is a 205 sq. ft. open porch in the front. 
+
+```{r}
+newx = data.frame(TotalRooms=11, YearBuilt=1987, YearRemodel=1999, LotArea=21540, LotFrontage =328, Quality=7, Condition=5, BasementSF=757,BasementFinSF=0, GroundSF = 2432, FullBath=2, Bedroom=4, Fireplaces=1, GarageSF=588, ScreenPorchSF=0)
+
+exp(predict.lm(mod_fancy, newx, interval="confidence"))
+```
+The 95% confidence interval for the mean price of such houses is [175.9672, 353.3621]
