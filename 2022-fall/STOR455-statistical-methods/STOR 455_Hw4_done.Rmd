@@ -1,0 +1,162 @@
+---
+title: 'STOR 455 Homework #4'
+subtitle: 40 points - Due Monday 10/10 at 11:59pm
+output:
+  pdf_document: default
+---
+
+__Situation:__ Suppose that you are interested in purchasing a used vehicle. How much should you expect to pay?  Obviously the price will depend on the type of vehicle that you get (the model) and how much it's been used. For this assignment you will investigate how the price might depend on the vehicle's year, state, and odometer reading.  
+ 
+__Data Source:__ To get a sample of vehicles, begin with the _vehiclesSE_ csv file. The data was acquired by scraping Craigslist for vehicles for sale across the southeastern United States. For this assignment you will use the same vehicle _model_ from assignment #2. Construct a subset of the _vehiclesSE_ data for this _model_ of vehicle. If your subset has cars with seemingly incorrect data (such as a price of $1, odometer reading of one million miles, year of 1900) you should remove those values from the data.
+
+__Directions:__ The code below should walk you through the process of selecting data from a particular model vehicle of your choice. The following R chunk begin with {r, eval=FALSE}. eval=FALSE makes this chunk not run when I knit the file. Before you knit this chunk, you should revert it to {r}.
+
+```{r}
+library(readr)
+library(polynom)
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/anova455.R")
+
+vehiclesSE <- read_csv("vehiclesSE.csv", show_col_types = FALSE)
+
+# Delete the ** below and enter your chosen model
+ModelOfMyChoice = "cr-v"
+
+# Takes a subset of your model vehicles
+MyVehicles = subset(vehiclesSE, model==ModelOfMyChoice & price > 0)
+row.names(MyVehicles) = 1:nrow(MyVehicles)
+```
+
+#### MODEL #5: Now Include a Categorical predictor ####    
+
+1. Construct a new variable called _age_ in the _MyVehicles_ dataframe. Since the vehicles were posted to Craigslist in 2021, define the _age_ of all vehicles to be their year subtracted from 2021. 
+```{r}
+MyVehicles$age = 2021 - MyVehicles$year
+```
+
+2. Fit a multiple regression model using _year_, _odometer_, and _state_ to predict the _price_ of the vehicle. 
+```{r}
+price = MyVehicles$price
+year = MyVehicles$year
+odometer = MyVehicles$odometer
+state = MyVehicles$state
+
+mod1 = lm(price~year+odometer+state)
+summary(mod1)
+```
+
+3. Perform a hypothesis test to determine the importance of terms involving _state_ in the model constructed in question 2. List your hypotheses, p-value, and conclusion.
+```{r}
+mod1_reduced = lm(price~year+odometer)
+anova(mod1_reduced, mod1)
+```
+H0: All Betas for k-1 state intercepts are zero, price ~ year + odometer, where k is the number of categories for state.
+Ha: At least one of the state's betas is not zero, price ~ year + odometer + state
+The p-value for the F-statistic is 0.02032 < 0.05, so we reject the null hypothesis at 5% significance level and conclude that we have statistical evidence to include "state" in the regression model.
+
+4. Fit a multiple regression model using _year_, _odometer_, _state_, and the interactions between _year_ and _state_, and _odometer_ and _state_ to predict the _price_ of  the vehicle.
+```{r}
+mod2 = lm(price~year+odometer+factor(state)+year*factor(state)+odometer*factor(state))
+summary(mod2)
+```
+
+5. Perform a hypothesis test to determine the importance of the terms involving _state_ in the model constructed in question 4. List your hypotheses, p-value, and conclusion.
+```{r}
+mod2_reduced = lm(price~year+odometer)
+anova(mod2_reduced, mod2)
+```
+H0: All Betas for state intercepts and interaction terms are zero, price ~ year + odometer.
+Ha: At least one of the state intercepts and interactions' betas is not zero, price ~ year + odometer + factor(state) + year * factor(state) + odometer * factor(state)
+The p-value for the F-statistic is 0.02375 < 0.05, so we reject the null hypothesis at 5% significance level and conclude that we have statistical evidence to include "state" and its interaction terms with year and odometer in the regression model.
+
+#### MODEL #6: Polynomial models ####
+    
+One of the drawbacks of the linear model in assignment #2 was the “free vehicle” phenomenon where the predicted price is eventually negative as the line decreases for older vehicles. Let’s see if adding one or more polynomial terms might help with this. 
+
+6. Fit a quadratic model using _age_ to predict _price_ and examine the residuals. Construct a scatterplot of the data with the quadratic fit included. You should discuss each of the conditions for the linear model.
+```{r}
+age = MyVehicles$age
+mod_age = lm(price~poly(age, degree = 2, raw = T))
+summary(mod_age)
+
+mod_age_coef = summary(mod_age)$coef[,1]
+
+mod_age_poly = as.function(polynomial(mod_age_coef))
+
+plot(price~age)
+curve(mod_age_poly, add = TRUE, col = "red")
+
+plot(mod_age, 1:2)
+```
+It appears that the linear model does not fit the data pretty well. (1) Normality is Not met. From the QQ-norm plot, standardized residuals deviate from the qq-line either above or below, especially at the two tails. (2) Linearity is met. From the residual-fitted value plot, we could NOT observe a curved trend of the residuals as fitted values increase.(3) Constant Variance is met.From the residual plot, the spread of the residuals among the zero-line is roughly constant. 
+
+7. Perform a hypothesis test to determine if any of the coefficients in this model have nonzero coefficients. List your hypotheses, p-value, and conclusion.
+```{r}
+anova455(mod_age)
+```
+H0: Betas for age and age^2 are zero.
+Ha: At least one of betas for age and age^2 is not zero.
+The p-value for the F-statistic is 2.2e-16 < 0.05, so we reject the null hypothesis at 5% significance level and conclude that we have statistical evidence to include the 1st and 2nd-degree term in the regression model.
+
+8. You are looking at a vehicle that was 4 years old (in 2021) of your model and want to find an interval that is likely to contain its _price_ using your quadratic model. Construct an interval with 95% confidence to predict the _price_ of this vehicle and include an interpretive sentence in context. 
+```{r}
+newx = data.frame(age=4)
+predict.lm(mod_age, newx, interval="prediction")
+```
+We are 95% confident that the vehicle price of a 4-year-old vehicle is within [15429.04, 26450.99].The 95% prediction interval[15429.04, 26450.99] consists of all those values of individual vehicle price Y_0 for which the null hypothesis that Y equals Y_0 will not be rejected at significance level of 0.05.
+
+9. Does the quadratic model allow for some _age_ where a vehicle has a zero or negative predicted price? Justify your answer using a calculation or graph.
+```{r}
+a = summary(mod_age)$coef[3,1]
+b = summary(mod_age)$coef[2,1]
+c = summary(mod_age)$coef[1,1]
+b^2 - 4*a*c
+```
+The quadratic model has a negative discriminant, which means that the model has no real solution, and non-positive predicted price does not exist.
+
+10. Would the fit improve significantly if you also included a cubic term? Does expanding your polynomial model to use a quartic term make significant improvements? Justify your answer.
+```{r}
+mod_age3 = lm(price~poly(age, degree = 3, raw = T))
+summary(mod_age3)
+
+anova(mod_age, mod_age3)
+```
+Perform a nested F-test on the two models with hypotheses:
+H0: coefficient of the cubic term is zero
+Ha: coefficient of the cubic term is not zero
+The p-value of the F-statistic is 0.6333 > 0.10, and we fail to reject the null hypothesis at any conventional significance level of 1%, 5% and 10% and conclude that including the cubic term does NOT make significant improvement.
+
+#### MODEL #7: Complete second order model ####    
+
+11.	Fit a complete second order model for predicting a used vehicle _price_ based on _age_ and _odometer_ and examine the residuals. You should discuss each of the conditions for the linear model.
+```{r}
+mod_2nd_order = lm(price~age+odometer+I(age^2)+I(odometer^2)+I(age*odometer))
+plot(mod_2nd_order, 1:2)
+```
+It appears that the linear model does not fit the data pretty well. (1) Normality is Not met. From the QQ-norm plot, standardized residuals deviate from the qq-line either above or below, especially at the two tails. (2) Linearity is met. From the residual-fitted value plot, we could NOT observe a curved trend of the residuals as fitted values increase.(3) Constant Variance is met. From the residual plot, the spread of the residuals among the zero-line is roughly constant. 
+
+12. Perform a hypothesis test to determine if any of the coefficients in this model have nonzero coefficients. List your hypotheses, p-value, and conclusion.
+```{r}
+anova455(mod_2nd_order)
+```
+H0: B1=B2=...=B5=0
+Ha: At least one of the slope coefficients is not zero
+The p-value of the F-statistic is 2.2e-16 < 0.01, and we reject the null hypothesis at any conventional significance level of 1%, 5% and 10% and conclude that including both the first and second-order terms fits the data better.
+
+13. Perform a hypothesis test to determine the importance of just the second order terms (quadratic and interaction) in the model constructed in question 11. List your hypotheses, p-value, and conclusion.
+```{r}
+mod_2nd_order_reduced_only_2nd = lm(price~I(age^2) + I(odometer^2) + I(age * odometer))
+anova(mod_2nd_order_reduced_only_2nd, mod_2nd_order)
+```
+H0: B3=B4=B5=0
+Ha: At least one of the 2nd-order slope coefficients is not zero
+The p-value of the F-statistic is 2.2e-16 < 0.01, and we reject the null hypothesis at any conventional significance level of 1%, 5% and 10% and conclude that just including the second-order terms data does NOT fit the data better than the full model does.
+
+14. Perform a hypothesis test to determine the importance of just the terms that involve _odometer_ in the model constructed in question 11. List your hypotheses, p-value, and conclusion.
+```{r}
+mod_2nd_order_reduced2 = lm(price ~ odometer + I(odometer^2))
+anova(mod_2nd_order_reduced2, mod_2nd_order)
+```
+H0: B1=B3=B5=0
+Ha: At least one of the B1, B3, and B5 is not zero
+The p-value of the F-statistic is 2.2e-16 < 0.01, and we reject the null hypothesis at any conventional significance level of 1%, 5% and 10% and conclude that just including term involving odometer does NOT fit the data better.
+
