@@ -1,0 +1,506 @@
+---
+title: 'STOR 455 Homework #5'
+subtitle: 40 points - Due Wednesday 10/19 at 11:59pm
+geometry: margin = 2.25cm
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+__Directions:__ For parts 6 and 9 you should work together, but these parts must be __submitted individually__ by each group member. For parts 7 and 8, you must have only __one submission per group__. There will be separate places on Gradescope to submit the individual vs group work. 
+
+__Situation:__ Can we predict the selling price of a house in Ames, Iowa based on recorded features of the house? That is your task for this assignment. Each team will get a dataset with information on forty potential predictors and the selling price (in $1,000’s) for a sample of homes. The data sets for your group are AmesTrain??.csv and AmesTest??.csv (where ?? corresponds to your group number) A separate file identifies the variables in the Ames Housing data and explains some of the coding.
+
+#### Part 6. Cross-validation: ####
+In some situations, a model might fit the peculiarities of a specific sample of data well, but not reflect structure that is really present in the population. A good test for how your model might work on "real" house prices can be simulated by seeing how well your fitted model does at predicting prices that were NOT in your original sample. This is why we reserved an additional 200 cases as a holdout sample in AmesTest??.csv. Import your holdout test data and 
+
+* Compute the predicted Price for each of the cases in the holdout test sample, using your model resulting from the initial fit and residual analysis in parts 1 and 2 of Homework #3. 
+```{r}
+library(readr)
+library(car)
+library(tidyr)
+library(dplyr)
+library(leaps)
+
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/ShowSubsets.R")
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/anova455.R")
+
+data_raw = read.csv("/Users/jimmyzheng0516/Desktop/AmesTrain21.csv")
+data_raw2 = read.csv("/Users/jimmyzheng0516/Desktop/AmesTest21.csv")
+
+# Training Data
+data_train = select_if(data_raw, is.numeric)[, -1]
+data_train[is.na(data_train) | data_train =="Inf" | data_train == "NaN"] = NA
+data_train[is.na(data_train)] = 0
+
+# Holdout Data
+data_holdout = select_if(data_raw2, is.numeric)[, -1]
+data_holdout[is.na(data_holdout) | data_holdout =="Inf" | data_holdout == "NaN"] = NA
+data_holdout[is.na(data_holdout)] = 0
+
+# Training Model
+Full = lm(data_train$Price~., data = data_train)
+none = lm(data_train$Price~1, data = data_train)
+MSE = (summary(Full)$sigma)^2
+mod_train = step(Full, scale=MSE, trace=FALSE)
+
+# Applying the Training Model to the Holdout Data
+mod_holdout = predict(mod_train, newdata=data_holdout)
+```
+
+* Compute the residuals for the 200 holdout cases.
+```{r}
+holdout_resid = data_holdout$Price - mod_holdout
+```
+
+* Compute the mean and standard deviation of these residuals. Are they close to what you expect from the training model?
+```{r}
+# Compute the mean and standard deviation of these residuals
+mean(holdout_resid)
+sd(holdout_resid)
+```
+
+```{r}
+# Compute the difference in means and standard deviations
+mean_resid_diff = mean(holdout_resid) - mean(mod_train$residuals)
+std_resid_diff = sd(holdout_resid) - sd(mod_train$residuals)
+mean_resid_diff
+std_resid_diff
+```
+
+```{r}
+# Test whether the differences are significant
+t.test(holdout_resid, mod_train$residuals)
+var.test(holdout_resid, mod_train$residuals)
+```
+The mean of the residuals for the holdout model is significantly greater than that of the training model as the difference between them is 1.027968. Besides, the difference in their standard deviations is also quite large,  which is -1.268513. 
+
+In fact, after conducting two-sample tests on their means and variances, we have statistical evidence to conclude that the differences in their means and standard deviations are NOT zero at 5% significance level as 0 is not included in their 95% confidence intervals.
+
+* Construct a plot of the residuals to determine if they are normally distributed. Is this plot what you expect to see considering the training model?
+
+```{r}
+qqnorm(holdout_resid)
+qqline(holdout_resid)
+```
+It appears that the residuals are not perfectly normally distributed. From the above QQ-norm plot, standardized residuals deviate from the qq-line either above or below, especially at the right tail. 
+
+```{r}
+plot(mod_train, 2)
+```
+We observed that the qqnorm plot for the training model is different from that of the holdout model. For the holdout model, the standardized residuals significantly deviate from the normal line ONLY at the right tail rather than at both tails as those in the training model do.
+
+* Are any holdout cases especially poorly predicted by the training model? If so, identify by the row number(s) in the holdout data. Why might these cases be poorly predicted?
+
+```{r}
+# compute the approximate standardized residuals
+holdout_resid_std = holdout_resid/sd(holdout_resid)
+
+head(sort(abs(holdout_resid_std), decreasing=TRUE), n=5)
+
+# Check the severest poorly predicted point
+data_holdout[102, ]
+mod_holdout[102]
+
+summary(data_holdout$LotArea)
+summary(data_holdout$Quality)
+summary(data_holdout$Price)
+```
+Five data points with the largest (approximate) standardized residuals are poorly predicted by the training model, which are row 102, 140, 179, 85, and 199.
+
+For the row 102 with the largest residual, it is poorly predicted because even though it has a LotArea of 18062 (somewhat higher than the 75% percentile of all LotAreas) and an extremely high quality of 10, its predicted price is only 374.723, which is significantly underestimated compared to its actual price, 545.224, the maximum of all prices; as a result, the vertical distance between this point and the predicted value is extremely large, and it is poorly predicted.
+
+* Compute the correlation between the predicted values and actual prices for the holdout sample. This is known as the cross-validation correlation. We don’t expect the training model to do better at predicting values different from those that were used to build it (as reflected in the original $R^{2}$), but an effective model shouldn’t do a lot worse at predicting the holdout values. Square the cross-validation correlation to get an $R^{2}$ value and subtract it from the original multiple $R^{2}$ of the training sample. This is known as the shrinkage. We won’t have specific rules about how little the shrinkage should be, but give an opinion on whether the shrinkage looks OK to you or too large in your situation. 
+```{r}
+(cor(data_holdout$Price,mod_holdout))^2 
+summary(mod_train)$r.squared
+
+summary(mod_train)$r.squared - (cor(data_holdout$Price,mod_holdout))^2
+```
+The R^2 of the holdout data is less than that of the training data, with a difference of nearly 1.35%. Still, I consider this 1.35% difference as a big difference, and it signifies that the training model does not predict the holdout data as well as the training data.
+
+#### Part 7. Find a “fancy model”: #### 
+Again using AmesTrain??.csv, where ?? corresponds to your group number, to build a regression model to predict Price. In addition to the quantitative predictors, you may now consider models with
+
+* Categorical variables - Just put these in the model and let R take care of making the indicator predictors (and picking one category to leave out). Use factor( ) to treat a numeric variable as categorical. You’ll see the coefficients for each indicator when you look at the summary( ) and they will be grouped together in the ANOVA. Be careful, since adding a single categorical variable with a lot of categories might actually be adding a lot of new indicator terms.
+
+* Transformations of the response - You might address curvature or skewness in residual plots by transforming the response prices with a function like log(Price), sqrt(Price), Price^2, etc..  These should generally not need the I( ) notation to make these adjustments. IMPORTANT: If you transform Price, be sure to reverse the transformation when making final predictions!
+
+* Combinations of variables - This might include interactions or other combinations. You do not need the I( ) notation when making an interaction using a categorical predictor (e.g.  GroundSF*CentralAir).
+
+Keep general track of the approaches you try and explain what guides your decisions as you select a new set of predictors (but again you don’t need to give full details of every model you consider). Along the way you should consider some residual analysis. 
+
+Notes/Tips:
+
+* WARNING: When using a categorical predictor with multiple categories in regsubsets( ), R will create indicators and treat them as separate predictors when deciding which to put into a model. So you might get a model with quantitative predictors like LotArea and GroundSF along with specific indicators like GarageQTA and HouseStyle1Story. This may not be very useful, since we should generally use all indicators for a categorical predictor if we include one in the model. On the other hand, when using the step( ) function, R will generally keep the multiple indicators for different categories of the same variable together as a unit. 
+
+* In some cases the indicators created for different categorical variables will have identical values.  For example, if you include both GarageC and GarageQ in a model, R will produce values for each of the indicators. The indicators for GarageQNone and GarageCNone (equal to one only for houses that don’t have a garage) will be identical. This may be handled differently in R depending on the procedure. regsubsets( ) may give a “warning” about variables being linearly dependent.  You can still use the results, just be aware that some variables are completely dependent. lm( ) might give output with coefficients (and tests) of some predictors listed as NA.  This is not a problem, R is just automatically deleting one of the redundant variables. If you are predicting for a house with no garage you might have a coefficient to use for GarageQNone but then you don’t need to worry about having one for GarageCNone.
+
+* If your residual analysis from homework #3 or an early model here suggest you might want to do a transformation for the response variable (Price), do so _before_ fitting a lot more models. No sense fine tuning a set of predictors for Price, then deciding you should be predicting log(Price) or Price^2. So make that decision fairly early, but don’t get too picky and expect to get perfect plot of residuals versus fits or an exact normal quantile plot.
+
+* Transformations of predictors -  You can include functions of quantitative predictors. Probably best to use the I( ) notation so you don’t need to create new columns when you run the predictions for the test data. 
+
+* Similarly, if you decide that some data cases should be dropped from the training set, don’t wait until late in the process to do so. For example, if you spot a _very_ large residual you should look at the characteristics for that house to see if it should be deleted. Don’t forget about the value of simple plots (like a scatterplot of Price vs. LotArea) for helping to see what is going on and recognize extreme cases. Be sure to document any adjustments you make in the final report. 
+
+* Comparing $C_{p}$ from different predictor pools - While Mallow’s $C_{p}$ is a useful tool for comparing models from the same pool of predictors. You should not use it to compare models based on different predictor pools. For example, if you add a bunch of categorical variables to all the quantitative predictors from homework #3 to make a new “full” model, then find $C_{p}$ from a model that you fit in homework #3, it will be worse than it was before. If you look at the formula for calculating $C_{p}$, you will see that all that has changed is MSE for the full model after adding the new batch of predictors.  
+
+* I should be able to follow the steps you use when selecting a model. I certainly don’t need to see every bit of output, but it might help to include more of the R commands you use. For example, saying you used backward elimination is not very helpful when I don’t know what you start with for the full model or pool of predictors (e.g. did you include Condition and Quality as numeric predictors? or did you decide to eliminate one of GroundSF, FirstSF, or SecondSF due to redundancy?). The easiest way to convey this in many cases is to show the R command you used. It is fine to abbreviate the output (for example, delete many steps in a stepwise procedure using trace=FALSE), but it would be helpful if you identified the parts you do include.  For example, a sentence like “After 12 steps of the stepwise procedure, we have the output below for the fitted model.”  Similarly, I don’t need to see 600 residuals, using head and sort can show the important ones.
+
+* Once you have settled on a response, made adjustments to the data (if needed), and chosen a set of predictors, be sure to include the summary( )for your “fancy” model at this stage.
+
+```{r}
+# Find all categorical variables
+data_cat = select_if(data_raw, is.character)[, -1]
+data_cat[is.na(data_cat) | data_cat =="Inf" | data_cat == "NaN"] = NA
+data_cat[is.na(data_cat)] = 0
+data_cat[1,]
+
+data_train[1,]
+```
+
+There are only two types of variables in the AmesTrain21.csv dataset, numeric and categorical variables.
+Therefore, in this question, we simply recognized all character variables as categorical variables while all numeric variables as quantitative variables. Therefore, for simplicity, we treated variables such as "Quality" and "Condition" as quantitative variables.
+
+```{r}
+data_fancy = cbind(data_cat, data_train)
+Full = lm(data_fancy$Price~., data = data_fancy)
+none = lm(data_fancy$Price~1, data = data_fancy)
+MSE = (summary(Full)$sigma)^2
+
+# Backward Elimination
+mod_fancy_back = step(Full, scale=MSE, trace=FALSE)
+
+# Stepwise Regression
+mod_fancy_step = step(none,scope=list(upper=Full),scale=MSE, trace = FALSE)
+
+mod_fancy_step
+
+# Forward Selection
+mod_fancy_for = step(none, scope=list(upper=Full), scale=MSE, direction="forward", trace = F)
+
+# Compare the adjusted R^2
+summary(mod_fancy_back)$adj.r.squared
+summary(mod_fancy_for)$adj.r.squared
+summary(mod_fancy_step)$adj.r.squared
+summary(mod_train)$adj.r.squared
+```
+After using 3 model selection methods, we found that the model chosen from stepwise regression or forward selection is the best model with the highest adjusted R^2 of 0.8983449, which is also higher than the previous training model in Hw3 (adjusted R^2 = 0.8605986).
+
+Then, for all categorical variables being selected, we add interaction terms to the model, which is shown below:
+```{r}
+# Full Interaction Model
+mod_inter_full = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath + Heating + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*BasementHt + Quality*Foundation + Quality*Heating + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*Heating + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*BasementHt + SecondSF*Foundation + SecondSF*Heating + SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt + BasementFinSF*Foundation + BasementFinSF*Heating + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*Heating + Fireplaces*Heating + LotFrontage*Heating + FullBath*Heating + EnclosedPorchSF*Heating+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Foundation + LotArea*Heating + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*BasementHt + YearBuilt*Foundation + YearBuilt*Heating + YearBuilt*GarageType + Condition*ExteriorQ + Condition*BasementHt + Condition*Foundation + Condition*Heating + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*Heating + BasementSF*GarageType,  data = data_fancy)
+```
+
+Including all categorical variables and their interaction terms may not significantly improve the model's fit. Therefore, we sequentially deleted each categorical variable and its interaction terms from the "Full" model and used ANOVA to test whether the terms involving that categorical variable are truly significant.
+
+```{r}
+# Are terms involving ExteriorQ significant? (Yes)
+mod_inter_no_extQ = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath + Heating + EnclosedPorchSF + GarageType + Quality*BasementHt + Quality*Foundation + Quality*Heating + Quality*GarageType + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*Heating + FirstSF*GarageType + SecondSF*BasementHt + SecondSF*Foundation + SecondSF*Heating + SecondSF*GarageType + BasementFinSF*BasementHt + BasementFinSF*Foundation + BasementFinSF*Heating + BasementFinSF*GarageType +GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*Heating + Fireplaces*Heating + LotFrontage*Heating + FullBath*Heating + EnclosedPorchSF*Heating+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*BasementHt + LotArea*Foundation + LotArea*Heating + LotArea*GarageType + YearBuilt*BasementHt + YearBuilt*Foundation + YearBuilt*Heating + YearBuilt*GarageType + Condition*BasementHt + Condition*Foundation + Condition*Heating + Condition*GarageType + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*Heating + BasementSF*GarageType,  data = data_fancy)
+
+anova(mod_inter_no_extQ, mod_inter_full)
+```
+Since the p-value of the F-statistic is only 8.99e-13<0.05, we conclude that we should not remove the terms involving ExteriorQ from the model at 5% significance level.
+
+```{r}
+# Are terms involving BasementHt significant? (Yes)
+mod_inter_no_Base = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath + Heating + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*Foundation + Quality*Heating + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*Foundation + FirstSF*Heating + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*Foundation + SecondSF*Heating + SecondSF*GarageType + BasementFinSF*ExteriorQ +  BasementFinSF*Foundation + BasementFinSF*Heating + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ + +GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*Heating + Fireplaces*Heating + LotFrontage*Heating + FullBath*Heating + EnclosedPorchSF*Heating+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*Foundation + LotArea*Heating + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*Foundation + YearBuilt*Heating + YearBuilt*GarageType + Condition*ExteriorQ + Condition*Foundation + Condition*Heating + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*Foundation + BasementSF*Heating + BasementSF*GarageType,  data = data_fancy)
+
+anova(mod_inter_no_Base, mod_inter_full)
+```
+Since the p-value of the F-statistic is only 0.002206<0.05, we conclude that we should not remove the terms involving BasementHt from the model at 5% significance level.
+
+```{r}
+# Are terms involving Foundation significant? (Yes)
+mod_inter_no_found = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+Condition + BasementSF + GarageSF + Fireplaces + 
+LotFrontage + FullBath + Heating + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*BasementHt  + Quality*Heating + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*BasementHt  + FirstSF*Heating + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*BasementHt  + SecondSF*Heating + SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt  + BasementFinSF*Heating + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt + GarageSF*Heating + Fireplaces*Heating + LotFrontage*Heating + FullBath*Heating + EnclosedPorchSF*Heating+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Heating + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*BasementHt  + YearBuilt*Heating + YearBuilt*GarageType + Condition*ExteriorQ + Condition*BasementHt + Condition*Heating + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*BasementHt  + BasementSF*Heating + BasementSF*GarageType,  data = data_fancy)
+
+
+anova(mod_inter_no_found, mod_inter_full)
+```
+Since the p-value of the F-statistic is only 0.006871<0.05, we conclude that we should not remove the terms involving Foundation from the model at 5% significance level.
+
+```{r}
+# Are terms involving Heating significant? (No)
+mod_inter_no_heat = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath  + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*BasementHt + Quality*Foundation  + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*BasementHt + SecondSF*Foundation  + SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt + BasementFinSF*Foundation  + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Foundation  + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*BasementHt + YearBuilt*Foundation  + YearBuilt*GarageType + Condition*ExteriorQ + Condition*BasementHt + Condition*Foundation  + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*GarageType,  data = data_fancy)
+
+anova(mod_inter_no_heat, mod_inter_full)
+```
+Since the p-value of the F-statistic is 0.456>0.05, we conclude that we should remove the terms involving Heating from the model at 5% significance level.
+
+```{r}
+# Are terms involving GarageType significant? (Yes)
+mod_inter_no_gar = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath + Heating + EnclosedPorchSF + Quality*ExteriorQ + Quality*BasementHt + Quality*Foundation + Quality*Heating + FirstSF*ExteriorQ + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*Heating + SecondSF*ExteriorQ + SecondSF*BasementHt + SecondSF*Foundation + SecondSF*Heating + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt + BasementFinSF*Foundation + BasementFinSF*Heating + GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*Heating + Fireplaces*Heating + LotFrontage*Heating + FullBath*Heating + EnclosedPorchSF*Heating + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Foundation + LotArea*Heating + YearBuilt*ExteriorQ + YearBuilt*BasementHt + YearBuilt*Foundation + YearBuilt*Heating + Condition*ExteriorQ + Condition*BasementHt + Condition*Foundation + Condition*Heating + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*Heating,  data = data_fancy)
+
+anova(mod_inter_no_gar, mod_inter_full)
+```
+
+Since the p-value of the F-statistic is 0.0002533<0.05, we conclude that we should not remove the terms involving GarageType from the model at 5% significance level.
+
+After the first round of elimination, we concluded that "Heating" and its interaction terms are the only variables that should be removed from the model.
+
+We conducted another round of elimination to see if there were other categorical variables and their interaction terms that should be removed, compared with the model without "Heating".
+
+```{r}
+# Are terms involving GarageType significant (compared with models without Heating)? (Yes)
+mod_inter_no_heat_gar = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath  + EnclosedPorchSF +Quality*ExteriorQ + Quality*BasementHt + Quality*Foundation + FirstSF*ExteriorQ + FirstSF*BasementHt + FirstSF*Foundation  + SecondSF*ExteriorQ + SecondSF*BasementHt + SecondSF*Foundation  + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt + BasementFinSF*Foundation + GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Foundation  + YearBuilt*ExteriorQ + YearBuilt*BasementHt + YearBuilt*Foundation  + Condition*ExteriorQ + Condition*BasementHt + Condition*Foundation  + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*Foundation,  data = data_fancy)
+
+anova(mod_inter_no_heat_gar, mod_inter_no_heat)
+```
+Since the p-value of the F-statistic is 0.0002459<0.05, we conclude that we should not remove the terms involving GarageType from the model at 5% significance level.
+
+```{r}
+# Are terms involving Foundation significant (compared with models without Heating)? (Yes)
+mod_inter_no_heat_found = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + Condition + BasementSF + GarageSF +  LotFrontage + FullBath  + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*BasementHt  + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*BasementHt +  FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*BasementHt +  SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt  + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt +GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*BasementHt +  YearBuilt*GarageType + Condition*ExteriorQ + Condition*BasementHt + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*GarageType,  data = data_fancy)
+
+anova(mod_inter_no_heat_found, mod_inter_no_heat)
+```
+
+Since the p-value of the F-statistic is 0.009802<0.05, we conclude that we should not remove the terms involving Foundation from the model at 5% significance level.
+
+```{r}
+# Are terms involving ExteriorQ significant (compared with models without Heating)? (Yes)
+mod_inter_no_heat_ext = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath  + EnclosedPorchSF + GarageType + Quality*BasementHt + Quality*Foundation  + Quality*GarageType + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*GarageType + SecondSF*BasementHt + SecondSF*Foundation  + SecondSF*GarageType + BasementFinSF*BasementHt + BasementFinSF*Foundation  + BasementFinSF*GarageType + GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*BasementHt + LotArea*Foundation  + LotArea*GarageType + YearBuilt*BasementHt + YearBuilt*Foundation  + YearBuilt*GarageType + Condition*BasementHt + Condition*Foundation  + Condition*GarageType + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*GarageType,  data = data_fancy)
+
+anova(mod_inter_no_heat_ext, mod_inter_no_heat)
+```
+
+Since the p-value of the F-statistic is 6.1e-13<0.05, we conclude that we should not remove the terms involving Foundation from the model at 5% significance level.
+
+```{r}
+# Are terms involving BasementHT significant (compared with models without Heating)? (Yes)
+mod_inter_no_heat_base = lm(data_fancy$Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath  + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*Foundation  + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*Foundation + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*Foundation  + SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*Foundation  + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ +GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*Foundation  + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*Foundation  + YearBuilt*GarageType + Condition*ExteriorQ + Condition*Foundation  + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*Foundation + BasementSF*GarageType,  data = data_fancy)
+
+anova(mod_inter_no_heat_base, mod_inter_no_heat)
+```
+Since the p-value of the F-statistic is 0.001774<0.05, we conclude that we should not remove the terms involving Foundation from the model at 5% significance level.
+
+It seems that we should not remove any of the 4 categorical variables and its interaction terms from the model without "Heating". Therefore, we stopped doing elimination further.
+
+However, we were still interested in the best models with interaction terms chosen by those model selection methods, which are shown below:
+```{r}
+Full_inter = mod_inter_full
+none = lm(data_fancy$Price~1, data = data_fancy)
+MSE_inter = (summary(Full_inter)$sigma)^2
+
+# Backward Elimination
+mod_fancy_inter_back = step(Full_inter, scale=MSE_inter, trace=FALSE)
+
+# Stepwise Regression
+mod_fancy_inter_step = step(none,scope=list(upper=Full_inter),scale=MSE_inter, trace = FALSE)
+
+# Forward Selection
+mod_fancy_inter_for = step(none, scope=list(upper=Full_inter), scale=MSE_inter, direction="forward", trace = F)
+
+# Linear Regression Conditions
+summary(mod_fancy_inter_back)$adj.r.squared
+summary(mod_fancy_inter_step)$adj.r.squared
+summary(mod_fancy_inter_for)$adj.r.squared
+summary(mod_inter_no_heat)$adj.r.squared
+
+# Adjusted R^2
+plot(mod_fancy_inter_back, 1:2)
+plot(mod_fancy_inter_step, 1:2)
+plot(mod_fancy_inter_for, 1:2)
+plot(mod_inter_no_heat, 1:2)
+```
+We observed that linear regression conditions are not significantly improved by using any of the models selected by backward elimination, forward selection, or stepwise regression, compared with the model without "Heating".
+Besides, all 4 models produced similar adjusted R^2's. Therefore, we decided to use the model without "Heating" because other models may have truncated too many variable (omitted variable bias), and its goodness of fit is NOT strictly dominated by that 3 models.
+
+We have tried several transformation methods on the model without "Heating":
+
+```{r}
+# Transformation on the model without "Heating"
+mod_inter_no_heat_ln = lm(log(data_fancy$Price) ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath  + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*BasementHt + Quality*Foundation  + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*BasementHt + SecondSF*Foundation  + SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt + BasementFinSF*Foundation  + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Foundation  + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*BasementHt + YearBuilt*Foundation  + YearBuilt*GarageType + Condition*ExteriorQ + Condition*BasementHt + Condition*Foundation  + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*GarageType,  data = data_fancy)
+
+mod_inter_no_heat_2 = lm(data_fancy$Price ~ I(Quality^2) + I(FirstSF^2) + I(SecondSF^2) + ExteriorQ + I(BasementFinSF^2) + I(LotArea^2) + BasementHt + I(YearBuilt^2) + I(Condition^2) + I(BasementSF^2) + I(GarageSF^2) + I(Fireplaces^2) + Foundation + 
+   I(LotFrontage^2) + I(FullBath^2)  + I(EnclosedPorchSF^2) + GarageType+I(Quality^2)*ExteriorQ + I(Quality^2)*BasementHt + I(Quality^2)*Foundation  + I(Quality^2)*GarageType + I(FirstSF^2)*ExteriorQ + I(FirstSF^2)*BasementHt + I(FirstSF^2)*Foundation + I(FirstSF^2)*GarageType + I(SecondSF^2)*ExteriorQ + I(SecondSF^2)*BasementHt + I(SecondSF^2)*Foundation  + I(SecondSF^2)*GarageType + I(BasementFinSF^2)*ExteriorQ + I(BasementFinSF^2)*BasementHt + I(BasementFinSF^2)*Foundation  + I(BasementFinSF^2)*GarageType+ I(GarageSF^2)*ExteriorQ + I(Fireplaces^2)*ExteriorQ  + I(LotFrontage^2)*ExteriorQ + I(FullBath^2)*ExteriorQ + I(EnclosedPorchSF^2)*ExteriorQ+I(GarageSF^2)*BasementHt + I(Fireplaces^2)*BasementHt  + I(LotFrontage^2)*BasementHt + I(FullBath^2)*BasementHt + I(EnclosedPorchSF^2)*BasementHt+I(GarageSF^2)*Foundation + I(Fireplaces^2)*Foundation  + I(LotFrontage^2)*Foundation + I(FullBath^2)*Foundation + I(EnclosedPorchSF^2)*Foundation+I(GarageSF^2)*GarageType + I(Fireplaces^2)*GarageType  + I(LotFrontage^2)*GarageType + I(FullBath^2)*GarageType + I(EnclosedPorchSF^2)*GarageType + I(LotArea^2)*ExteriorQ + I(LotArea^2)*BasementHt + I(LotArea^2)*Foundation  + I(LotArea^2)*GarageType+ I(YearBuilt^2)*ExteriorQ + I(YearBuilt^2)*BasementHt + I(YearBuilt^2)*Foundation  + I(YearBuilt^2)*GarageType + I(Condition^2)*ExteriorQ + I(Condition^2)*BasementHt + I(Condition^2)*Foundation  + I(Condition^2)*GarageType + I(BasementSF^2)*ExteriorQ + I(BasementSF^2)*BasementHt + I(BasementSF^2)*Foundation + I(BasementSF^2)*GarageType,  data = data_fancy)
+
+# Check Linear Regression Conditions
+plot(mod_inter_no_heat, 1:2)
+plot(mod_inter_no_heat_ln, 1:2)
+plot(mod_inter_no_heat_2, 1:2)
+```
+It seems that neither the log transformation on the response variable nor the squared transformation on the explanatory variables has significantly improved the linear regression conditions. 
+
+We first forsook the model with log transformation on the response variable and then compared the adjusted R^2 between the squared transformed model and the untransformed model without "Heating":
+
+```{r}
+summary(mod_inter_no_heat_2)$adj.r.squared
+summary(mod_inter_no_heat)$adj.r.squared
+```
+Asides from linear regression conditions, the above result of adjusted R^2's shows that the squared transformed model does NOT improve goodness of fit either.
+
+Then, we made a final comparison between the untransformed model without "Heating" and our original models.
+
+```{r}
+# Check Linear Regression Conditions
+plot(mod_fancy_step, 1:2)
+plot(mod_inter_full, 1:2)
+plot(mod_inter_no_heat, 1:2)
+```
+Unfortunately, from the residual plots, we would say neither of them meets the linear regression conditions pretty well.
+
+```{r}
+# Compare Adjusted R^2
+summary(mod_fancy_step)$adj.r.squared
+summary(mod_inter_full)$adj.r.squared
+summary(mod_inter_no_heat)$adj.r.squared
+```
+However, it seems that the interaction model without "Heating" produces the highest adjusted R^2 among them, which is significantly higher than that of the oldest model without any interaction term.
+
+Therefore, we conclude that our final "fancy" model is the model without "Heating", and its summary is shown below.
+```{r}
+summary(mod_inter_no_heat)
+```
+
+
+#### Part 8: Cross-validation for your “fancy” model ####
+    
+Redo the cross-validation analysis with your test data for your new fancy model. Use AmesTest??.csv, where ?? corresponds to your group number. Discuss how the various measures (mean of residuals, std. dev of residuals, shape of the distributions of residuals, cross-validation correlation, and shrinkage) compare to the results you had for your basic model.  Don’t worry about looking for poorly predicted cases this time. If you transformed the response variable, consider how to take this into account for your residual analysis. In order to compare residuals they should have the same units!
+
+```{r}
+fitted_holdout_inter_no_heat = predict(mod_inter_no_heat, newdata = data_raw2)
+resid_holdout_inter_no_heat = data_raw2$Price - fitted_holdout_inter_no_heat
+# Compute the means and standard deviations
+mean(resid_holdout_inter_no_heat)
+mean(mod_inter_no_heat$residuals)
+sd(resid_holdout_inter_no_heat)
+sd(mod_inter_no_heat$residuals)
+```
+
+```{r}
+# Compute the difference in means and standard deviations
+mean_resid_diff_fancy = mean(resid_holdout_inter_no_heat) - mean(mod_inter_no_heat$residuals)
+std_resid_diff_fancy = sd(resid_holdout_inter_no_heat) - sd(mod_inter_no_heat$residuals)
+mean_resid_diff_fancy
+std_resid_diff_fancy
+```
+We observed that the differences in means and standard deviations are extremely large (28.28999 and 240.7855). The mean of residuals for the training data is roughly zero (3.437248e-16), while that for the holdout data is 28.28999. The residual standard deviation for the training data is 16.51002, while that for the holdout data is 257.2956.
+
+```{r}
+# Test whether the differences are significant
+t.test(resid_holdout_inter_no_heat, mod_inter_no_heat$residuals)
+var.test(resid_holdout_inter_no_heat, mod_inter_no_heat$residuals)
+```
+In fact, from the results of two-sample t-tests and variance-test, we rejected the null hypotheses that the residual means and standard deviations are the same for both datasets at 5% significance level.
+
+```{r}
+plot(mod_inter_no_heat, 2)
+
+hist(resid_holdout_inter_no_heat, breaks = 100)
+hist(mod_inter_no_heat$residuals, breaks = 100)
+qqnorm(resid_holdout_inter_no_heat)
+qqline(resid_holdout_inter_no_heat)
+```
+In fact, it seems that the distribution of the residuals differ significantly between the training data and the holdout data. There are two extreme points in the holdout data deviating from the qq-norm line substantially.
+
+```{r}
+(cor(data_raw2$Price, fitted_holdout_inter_no_heat))^2 
+summary(mod_inter_no_heat)$r.squared
+summary(mod_inter_no_heat)$r.squared - (cor(data_raw2$Price, fitted_holdout_inter_no_heat))^2 
+```
+The shrinkage is also extremely large, which is 0.8480757. This means that the model did a extremely poor job in predicting the housing price of the holdout data than of the training data.
+
+Note on missing categories:
+
+>When creating the predictions using predict(yourmodel,AmesTest) you may see an error like:  
+
+>Error in model.frame.default(Terms, newdata, na.action = na.action, xlev = object$xlevels) :   factor HouseStyle has new levels 1.5Unf, 2.5Fin, 2.5Unf  
+  
+>This occurs because the holdout sample has a value for the categorical variable that was not present in your training sample, so there is no indicator in your model to handle that case. To get a prediction for that house, you’ll need to switch the category to one that is in your training data.  In the example above you might choose to replace the “2.5Fin” house style with “2Story”. If you are not sure what category to use, try whatever R uses as the “left out” reference category. Be sure to record any changes like this that you make.
+
+#### Part 9. Final Model ####  
+
+Again, you may choose to make some additional adjustments to your model after considering the final residual analysis. If you do so, please explain what (and why) you did and provide the summary() for your new final model.
+
+```{r}
+# Residual Analysis of the Final Model
+rstudent(mod_inter_no_heat)[abs(rstudent(mod_inter_no_heat))>2]
+cooks.distance(mod_inter_no_heat)[cooks.distance(mod_inter_no_heat)>0.5 | cooks.distance(mod_inter_no_heat)>1]
+
+summary(data_fancy$Price)
+summary(data_fancy$LotArea)
+summary(data_fancy$Condition)
+summary(data_fancy$Quality)
+data_fancy[c(89, 179), ]
+```
+We found two data points, row 89 and row 179, with high cook's distances (2.484144 and 1.031400) and studentized residual (5.024382 and -2.298386 ). After looking at row 89's detail information, we found that despite of its high quality, its other conditions (such as area and condition) are at the moderate level (near median) among all houses. However, its price is overly high (above 75% of all prices). Based on its values of studentized residuals and cook's distance, row 89 is indeed highly influential and problematic, so we decided to remove it from our dataset. Row 179, on the other hand, is influential since it has the maximum LotArea (159000) among all houses, while the 75% percentile of LotArea is only 11347. Therefore, row 179 is somewhat at the far right tail of the regression line, also with a significant studentized residual, serving as a high leverage and influential point. We decided to remove row 179 as well since it deviates from the majority of data and is also highly influential on the slope estimates.
+
+```{r}
+# Final Model
+data_final = data_fancy[c(-89, -179), ]
+mod_final = lm(Price ~ Quality + FirstSF + SecondSF + 
+    ExteriorQ + BasementFinSF + LotArea + BasementHt + YearBuilt + 
+    Condition + BasementSF + GarageSF + Fireplaces + Foundation + 
+    LotFrontage + FullBath  + EnclosedPorchSF + GarageType+Quality*ExteriorQ + Quality*BasementHt + Quality*Foundation  + Quality*GarageType + FirstSF*ExteriorQ + FirstSF*BasementHt + FirstSF*Foundation + FirstSF*GarageType + SecondSF*ExteriorQ + SecondSF*BasementHt + SecondSF*Foundation  + SecondSF*GarageType + BasementFinSF*ExteriorQ + BasementFinSF*BasementHt + BasementFinSF*Foundation  + BasementFinSF*GarageType+ GarageSF*ExteriorQ + Fireplaces*ExteriorQ  + LotFrontage*ExteriorQ + FullBath*ExteriorQ + EnclosedPorchSF*ExteriorQ+GarageSF*BasementHt + Fireplaces*BasementHt  + LotFrontage*BasementHt + FullBath*BasementHt + EnclosedPorchSF*BasementHt+GarageSF*Foundation + Fireplaces*Foundation  + LotFrontage*Foundation + FullBath*Foundation + EnclosedPorchSF*Foundation+GarageSF*GarageType + Fireplaces*GarageType  + LotFrontage*GarageType + FullBath*GarageType + EnclosedPorchSF*GarageType + LotArea*ExteriorQ + LotArea*BasementHt + LotArea*Foundation  + LotArea*GarageType+ YearBuilt*ExteriorQ + YearBuilt*BasementHt + YearBuilt*Foundation  + YearBuilt*GarageType + Condition*ExteriorQ + Condition*BasementHt + Condition*Foundation  + Condition*GarageType + BasementSF*ExteriorQ + BasementSF*BasementHt + BasementSF*Foundation + BasementSF*GarageType,  data = data_final)
+```
+
+```{r}
+# Check Linear Regression Condition
+plot(mod_inter_no_heat, 1:2)
+plot(mod_final, 1:2)
+```
+From the residual plots, it seems that the normality condition has been slightly improved after row 89 and 179 are removed. We observed that residuals' deviations at the right tail of the qq-norm line slightly decrease.
+
+```{r}
+# Comparing the R^2
+summary(mod_inter_no_heat)$r.squared
+summary(mod_final)$r.squared
+summary(mod_final)$r.squared-summary(mod_inter_no_heat)$r.squared
+```
+The R^2 increases slightly after from row 89 and 179 are removed.
+
+In conclusion, we believed it is appropriate to remove row 89 and 179 from our sample, and our final model is shown below.
+
+```{r}
+# Model Summary
+summary(mod_final)
+```
+
+Suppose that you are interested in a house in Ames that has the characteristics listed below. Construct a 95% confidence interval for the mean price of such houses.
+
+A 2 story 11 room home, built in 1987 and remodeled in 1999 on a 21540 sq. ft. lot with 328 feet of road frontage. Overall quality is good (7) and condition is average (5). The quality and condition of the exterior are both good (Gd) and it has a poured concrete foundation. There is an 757 sq. foot basement that has excellent height, but is completely unfinished and has no bath facilities. Heating comes from a gas air furnace that is in excellent condition and there is central air conditioning. The house has 2432 sq. ft. of living space above ground, 1485 on the first floor and 947 on the second, with 4 bedrooms, 2 full and one half baths, and 1 fireplace. The 2 car, built-in garage has 588 sq. ft. of space and is average (TA) for both quality and construction. The only porches or decks is a 205 sq. ft. open porch in the front. 
+
+```{r}
+new_home = data.frame(TotalRooms=11, YearBuilt=1987, YearRemodel=1999, LotArea=21540, LotFrontage =328, Quality=7, Condition=5, ExteriorQ="Gd", Foundation="PConc", BasementHt="Ex", GarageType = "BuiltIn",BasementSF=757,BasementFinSF=0, GroundSF = 2432, FullBath=2, Bedroom=4, Fireplaces=1, GarageSF=588, ScreenPorchSF=0, FirstSF=1485, SecondSF=947, EnclosedPorchSF=0)
+
+predict.lm(mod_inter_no_heat, new_home, interval="confidence")
+predict.lm(mod_final, new_home, interval = "confidence")
+
+width_with_89_179 = 316.2713-37.10311
+width_no_89_179 = 387.5861-113.3327
+
+width_with_89_179 - width_no_89_179
+```
+The 95% confidence interval for the mean price of such houses is [113.3327, 387.5861]
+
+We also computed the 95% confidence interval by using the model with row 89 and 179 included and compared the widths of these two intervals. We observed that removing the row 89 and 179 makes the width of the confidence interval decrease by 4.91479 (thousand $), which means that the prediction becomes more accurate under 95% confidence level.
