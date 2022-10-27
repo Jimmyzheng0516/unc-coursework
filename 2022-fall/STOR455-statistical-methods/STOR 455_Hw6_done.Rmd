@@ -1,0 +1,141 @@
+---
+title: 'STOR 455 Homework 6'
+subtitle: '20 points - Due Wednesday 10/26 5:00pm'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+### Are Emily and Greg More Employable Than Lakisha and Jamal? ###
+
+Bertrand, M., & Mullainathan, S. (2004). Are Emily and Greg more employable than Lakisha and Jamal? A field experiment on labor market discrimination. _American Economic Review, 94_(4), pp. 991-1013.
+ 
+\[Abstract\]
+We perform a field experiment to measure racial discrimination in the labor market. We respond with fictitious resumes to help-wanted ads in Boston and Chicago newspapers. To manipulate perception of race, each resume is randomly assigned either a very African American sounding name or a very White sounding name. The results show significant discrimination against African-American names: White names receive 50 percent more callbacks for interviews. We also find that race affects the benefits of a better resume. For White names, a higher quality resume elicits 30 percent more callbacks whereas for African Americans, it elicits a far smaller increase. Applicants living in better neighborhoods receive more callbacks but, interestingly, this effect does not differ by race. The amount of discrimination is uniform across occupations and industries. Federal contractors and employers who list “Equal Opportunity Employer” in their ad discriminate as much as other employers. We find little evidence that our results are driven by employers inferring something other than race, such as social class, from the names. These results suggest that racial discrimination is still a prominent feature of the labor market.    
+
+
+Variables     | Descriptions
+-----------   | -----------------------------------------------------
+_call_        | Was the applicant called back? (1 = yes; 0 = no)
+_ethnicity_   | indicating ethnicity ("Caucasian-sounding" vs. "African-American sounding" first name)
+_sex_         | indicating sex
+_quality_     | Indicating quality of resume.
+_experience_  | Number of years of work experience on the resume
+_equal_       | Is the employer EOE (equal opportunity employment)?
+
+
+Use the _ResumeNames455_ found at the address below:
+
+https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/ResumeNames455.csv
+
+```{r, warning=FALSE}
+library(readr)
+library(Stat2Data)
+
+data_raw = read.csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/ResumeNames455.csv")
+
+head(data_raw)
+```
+1) Construct a logistic model to predict if the job applicant was called back using _experience_ as the predictor variable.
+```{r}
+mod_exp = glm(call ~ experience, family = binomial, data=data_raw)
+summary(mod_exp)
+```
+
+2) Plot the raw data and the logistic curve on the same axes.
+```{r}
+plot(
+   jitter(call, amount=0.1) ~ experience, 
+   ylim = c(-0.25,1.25), 
+   data=data_raw
+   )
+
+B0 = summary(mod_exp)$coef[1]
+B1 = summary(mod_exp)$coef[2]
+
+curve(exp(B0+B1*x)/(1+exp(B0+B1*x)),add=TRUE, col="red")
+```
+
+3) For an applicant with 6 years of experience, what does your model predict is the probability of this applicant getting called back?
+```{r}
+logit = function(B0, B1, x){exp(B0+B1*x)/(1+exp(B0+B1*x))}
+
+logit(B0, B1, 6)
+```
+
+4) Construct an empirical logit plot and comment on the linearity of the data.
+```{r}
+emplogitplot1(call~experience, data=data_raw, ngroups="all") 
+```
+Linearity is not perfectly met by the logistic model. We observe that actual log(odds) spread over the regression with uneven distribution, especially at experience level around 20. Besides, it also appears that most data cluster below experience level of 30, the data point at the right tail somehow looks weird.
+
+5) Use the model from question #1 to perform a hypothesis test to determine if there is significant evidence of a relationship between _call_ and _experience_. Cite your hypotheses, p-value, and conclusion in context.
+```{r}
+summary(mod_exp)
+```
+H0: Beta 1 for experience is zero
+Ha: Beta 1 for experience NOT zero
+The p-value for the z-score is 2.07e-05 < 0.05, so we reject the null hypothesis at 5% significance level and conclude that we have statistical evidence of a relationship between _call_ and _experience_.
+
+6) Construct a confidence interval for the odds ratio for your model and include a sentence interpreting the interval in the context.
+```{r}
+exp(confint.default(mod_exp))
+```
+From the above confidence interval constructed, we are 95% confident that the true odds ratio is between 1.02131169 and 1.05873170 if we keep repeating the random sampling and regression process. 
+Interpretation of the odds ratio: when experience increases by 1, the odds decrease/increase by a factor of e^B1 (odds ratio).
+
+7) For each 5-year increase in _experience_, how does your model predict the odds will change for the applicant getting called back?
+```{r}
+exp(B1*5)
+```
+
+8) Construct subsets of the data for each category of _ethnicity_ and construct logistic models to predict if the job applicant was called back using _experience_ as the predictor variable for each of these subsets. Then plot the raw data and the logistic curves on the same axes. Comment on differences between the curves and what this means in the context of the data.
+```{r}
+mod_exp_cauc = glm(call ~ experience, family = binomial, data=data_raw[data_raw$ethnicity=="cauc", ])
+mod_exp_afam = glm(call ~ experience, family = binomial, data=data_raw[data_raw$ethnicity=="afam", ])
+
+plot(
+   jitter(call, amount=0.1) ~ experience, 
+   ylim = c(-0.25,1.25), 
+   data=data_raw
+   )
+
+B0_cauc = summary(mod_exp_cauc)$coef[1]
+B1_cauc = summary(mod_exp_cauc)$coef[2]
+B0_afam = summary(mod_exp_afam)$coef[1]
+B1_afam = summary(mod_exp_afam)$coef[2]
+
+curve(exp(B0_cauc+B1_cauc*x)/(1+exp(B0_cauc+B1_cauc*x)),add=TRUE, col="red")
+curve(exp(B0_afam+B1_afam*x)/(1+exp(B0_afam+B1_afam*x)),add=TRUE, col="blue")
+
+legend(28, 1.2, legend=c("Caucasian-sounding", "African-American sounding"),
+       col=c("red", "blue"), lty=1, cex=0.8)
+```
+It seems that at each level of experience, applicants with "Caucasian-sounding" has a higher predicted probability of being called than applicants with "African-American sounding" on average as "Caucasian-sounding" logistic curve is higher than that of "African-American sounding". This signifies that racial discrimination may exist in the job-seeking process.
+
+9) Construct subsets of the data for each category of _sex_ and construct logistic models to predict if the job applicant was called back using _experience_ as the predictor variable for each of these subsets. Then plot the raw data and the logistic curves on the same axes. Comment on differences between the curves and what this means in the context of the data.
+```{r}
+mod_exp_fem = glm(call ~ experience, family = binomial, data=data_raw[data_raw$sex=="female", ])
+mod_exp_m = glm(call ~ experience, family = binomial, data=data_raw[data_raw$sex=="male", ])
+
+plot(
+   jitter(call, amount=0.1) ~ experience, 
+   ylim = c(-0.25,1.25), 
+   data=data_raw
+   )
+
+B0_fem  = summary(mod_exp_fem)$coef[1]
+B1_fem  = summary(mod_exp_fem)$coef[2]
+B0_m = summary(mod_exp_m)$coef[1]
+B1_m = summary(mod_exp_m)$coef[2]
+
+curve(exp(B0_fem+B1_fem*x)/(1+exp(B0_fem+B1_fem*x)),add=TRUE, col="red")
+curve(exp(B0_m+B1_m*x)/(1+exp(B0_m+B1_m*x)),add=TRUE, col="blue")
+
+legend(28, 1.2, legend=c("Female", "Male"),
+       col=c("red", "blue"), lty=1, cex=0.8)
+```
+It seems that gender effect exists in the job-seeking process. As experience level increases, female applicants' likelihood of callbacks increases at a higher rate than that of male applicants, which probably signifies that women are more benefited from their increasing experience level than men. Male applicants have higher predicted likelihood at 0 experience level, but as their experience level increases, its marginal impact on job seeking starts decreasing. 
+
+In homework #7 we will continue with this data to investigate how the other variables impact an applicant's chances of being called back using multiple logistic regression models.
