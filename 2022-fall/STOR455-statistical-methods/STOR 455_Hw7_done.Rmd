@@ -1,0 +1,139 @@
+---
+title: 'STOR 455 Homework 7'
+subtitle: '25 points - Due Wednesday 11/2 1:25pm'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+### Are Emily and Greg More Employable Than Lakisha and Jamal? ###
+
+Bertrand, M., & Mullainathan, S. (2004). Are Emily and Greg more employable than Lakisha and Jamal? A field experiment on labor market discrimination. _American Economic Review, 94_(4), pp. 991-1013.
+
+\[Abstract\]
+We perform a field experiment to measure racial discrimination in the labor market. We respond with fictitious resumes to help-wanted ads in Boston and Chicago newspapers. To manipulate perception of race, each resume is randomly assigned either a very African American sounding name or a very White sounding name. The results show significant discrimination against African-American names: White names receive 50 percent more callbacks for interviews. We also find that race affects the benefits of a better resume. For White names, a higher quality resume elicits 30 percent more callbacks whereas for African Americans, it elicits a far smaller increase. Applicants living in better neighborhoods receive more callbacks but, interestingly, this effect does not differ by race. The amount of discrimination is uniform across occupations and industries. Federal contractors and employers who list “Equal Opportunity Employer” in their ad discriminate as much as other employers. We find little evidence that our results are driven by employers inferring something other than race, such as social class, from the names. These results suggest that racial discrimination is still a prominent feature of the labor market.    
+
+
+Variables     | Descriptions
+-----------   | -----------------------------------------------------
+_call_        | Was the applicant called back? (1 = yes; 0 = no)
+_ethnicity_   | indicating ethnicity (i.e., "Caucasian-sounding" vs. "African-American sounding" first name)
+_sex_         | indicating sex
+_quality_     | Indicating quality of resume.
+_experience_  | Number of years of work experience on the resume
+_equal_       | Is the employer EOE (equal opportunity employment)?
+
+
+Use the _ResumeNames455_ found at the address below:
+
+https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/ResumeNames455.csv
+
+```{r}
+library(readr)
+library(Stat2Data)
+library(bestglm)
+library(MASS)
+library(leaps)
+
+data_raw = read.csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/ResumeNames455.csv")
+```
+
+1) An Equal Opportunity Employer (EOE) is an employer who agrees not to discriminate against any employee or job applicant because of race, color, religion, national origin, sex, physical or mental disability, or age. Construct a logistic model to predict if the job applicant was called back using _ethnicity_, _equal_, _sex_, and the interactions between _ethnicity_ and _equal_, and _sex_ and _equal_ as the predictor variables. 
+```{r}
+mod_inter = glm(call ~ ethnicity+equal+sex+ethnicity*equal+sex*equal, family = binomial, data=data_raw)
+summary(mod_inter)
+```
+
+2)  Conduct a drop in deviance hypothesis test to determine the effectiveness of the _equal_ terms in the model constructed in the previous question. Cite your hypotheses, p-value, and conclusion in context.
+```{r}
+mod_inter_noequ = glm(call ~ ethnicity+sex, family = binomial, data=data_raw)
+anova(mod_inter_noequ, mod_inter, test="Chisq")
+```
+H0: Betas for terms involving "equal" are all zero
+Ha: At Least one of the above betas is non-zero
+The p-value Pr(>Chi) is 0.2629 > 0.10, we fail to reject H0 and have statistical evidence to conclude that including terms involving "equal" does NOT make significanct improvement to the model's prediction power at any conventional significance level.
+
+3)  Based on your model from question 1, What is the probability of a female applicant with a "Caucasian-sounding" name getting a call back from an Equal Opportunity Employer (EOE)? What is the probability of a male applicant with an "African-American sounding" name getting a call back from an Equal Opportunity Employer (EOE)?
+```{r}
+applicant_f = data.frame(ethnicity="cauc", equal="yes", sex="female")
+applicant_m = data.frame(ethnicity="afam", equal="yes", sex="male")
+
+predict(mod_inter, applicant_f, type = "response")
+predict(mod_inter, applicant_m, type = "response")
+```
+The probability for the female applicant is 0.09809906.
+The probability for the male applicant is 0.06963218.
+
+4) Does the number of years of work experience impact the relationship between _ethnicity_, _sex_, and an applicant getting called back? Construct a logistic model to predict if the job applicant was called back using _ethnicity_, _sex_, _experience_, and the interactions between _ethnicity_ and _experience_, and _sex_ and _experience_ as the predictor variables. 
+```{r}
+mod_inter2 = glm(call ~ ethnicity+experience+sex+ethnicity*experience+sex*experience, family = binomial, data=data_raw)
+summary(mod_inter2)
+```
+
+5)  Conduct a drop in deviance hypothesis test to determine the effectiveness of the _experience_ terms in the model constructed in the previous question. Cite your hypotheses, p-value, and conclusion in context.
+```{r}
+mod_inter_noexp = glm(call ~ ethnicity+sex, family = binomial, data=data_raw)
+anova(mod_inter_noexp, mod_inter2, test="Chisq")
+```
+H0: Betas for terms involving "experience" are all zero
+Ha: At Least one of the above betas is non-zero
+The p-value Pr(>Chi) is 4.958e-05 < 0.01, we reject H0 and have statistical evidence to conclude that including terms involving "experience" does make significanct improvement to the model's prediction power at any conventional significance level.
+
+6)  Construct a plot with _experience_ on the horizontal axis and _call_ on the vertical axis. Add to this plot four curves, made from the model constructed in question 4. Comment on the similarities or differences between the four curves.
+    *   For an male applicant with a "Caucasian-sounding" name, add to the plot a red logistic curve showing the probability of getting a call back based on experience. 
+    *   For an female applicant with a "Caucasian-sounding" name, add to the plot a green logistic curve showing the probability of getting a call back based on experience.
+    *   For a male applicant with an "African-American sounding" name, add to the plot a blue logistic curve showing the probability of getting a call back based on experience.
+    *   For a female applicant with an "African-American sounding" name, add to the plot a orange logistic curve showing the probability of getting a call back based on experience. 
+```{r}
+mod_inter2 = glm(call ~ ethnicity+sex+experience+ethnicity*experience+sex*experience, family = binomial, data=data_raw)
+
+plot(
+   jitter(call, amount=0.1) ~ experience, 
+   ylim = c(-0.25,1.25), 
+   data=data_raw
+   )
+B0_m_cauc = summary(mod_inter2)$coef[1, 1]+summary(mod_inter2)$coef[2, 1]+summary(mod_inter2)$coef[3, 1]
+B1_m_cauc = summary(mod_inter2)$coef[4, 1]+summary(mod_inter2)$coef[5, 1]+summary(mod_inter2)$coef[6, 1]
+
+B0_fem_cauc  = summary(mod_inter2)$coef[1, 1]+summary(mod_inter2)$coef[2, 1]
+B1_fem_cauc  = summary(mod_inter2)$coef[4, 1]+summary(mod_inter2)$coef[5, 1]
+
+B0_m_afam = summary(mod_inter2)$coef[1, 1]+summary(mod_inter2)$coef[3, 1]
+B1_m_afam = summary(mod_inter2)$coef[4, 1]+summary(mod_inter2)$coef[6, 1]
+
+B0_fem_afam = summary(mod_inter2)$coef[1, 1]
+B1_fem_afam = summary(mod_inter2)$coef[4, 1]
+
+curve(exp(B0_m_cauc+B1_m_cauc*x)/(1+exp(B0_m_cauc+B1_m_cauc*x)),add=TRUE, col="red")
+curve(exp(B0_fem_cauc+B1_fem_cauc*x)/(1+exp(B0_fem_cauc+B1_fem_cauc*x)),add=TRUE, col="green")
+curve(exp(B0_m_afam+B1_m_afam*x)/(1+exp(B0_m_afam+B1_m_afam*x)),add=TRUE, col="blue")
+curve(exp(B0_fem_afam+B1_fem_afam*x)/(1+exp(B0_fem_afam+B1_fem_afam*x)),add=TRUE, col="orange")
+
+legend(28, 1.2, legend=c("Male & Caucasian", "Female & Caucasian", "Male & African-American", "Female & African-American"),
+       col=c("red", "green", "blue", "orange"), lty=1, cex=0.8)
+```
+It seems that "gender effect" is greater than "race effect" in terms of the marginal impact of experience level on call back probability. We observe that for both male and female applicants, having a Caucasian-sounding name only gives them slight advantage in the job seeking process, since the curves for Caucasian-sounding is just slightly higher than that of African-American sounding. In general, no matter what kind of name sounding, as experience level increases, female applicants' likelihood of callbacks increases at a higher rate than that of male applicants, which probably signifies that women are more benefited from their increasing experience level than men. Male applicants have higher predicted likelihood at 0 experience level, but as their experience level increases, its marginal impact on job seeking starts decreasing. 
+
+7)  Use an appropriate model selection method to construct a best model to predict if the job applicant was called back using any of the variables as predictors (except for _name_). You do not need to consider interaction terms. Why would you not want to use _name_ as a predictor?
+```{r}
+call.1 <- within(data_raw, {name = NULL}) 
+call.2 = call.1[,c(1:3,5:6,4)]
+
+full_call = glm(call~., data=call.1, family="binomial")
+none = glm(call~1, data=call.1, family="binomial")
+
+final_model_backwards = stepAIC(full_call, trace=FALSE)
+final_model_forwards = stepAIC(none, scope=list(upper=full_call), direction="forward", trace=FALSE)
+final_model_step = stepAIC(none, scope=list(upper=full_call), direction="both", trace=FALSE)
+
+summary(final_model_backwards)$aic
+summary(final_model_forwards)$aic
+summary(final_model_step)$aic
+
+final_model = final_model_backwards
+summary(final_model)
+```
+The final model is call ~ ethnicity + quality + experience, which is the best model selected from backward, forward, or stepwise selection as they yield the same lowest AIC of 2699.144.
+
+Not including "name" is because "ethnicity" already divided "name" into two groups: "cauc" and "afam". And we are interested in whether the sounding of a applicant's name rather than the name itself makes a difference in callback probability. For different samples with different applicants, their names vary significantly, and difference in names is not important at all. 
