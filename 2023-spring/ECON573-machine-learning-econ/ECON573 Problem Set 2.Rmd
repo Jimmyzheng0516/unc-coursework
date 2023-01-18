@@ -1,0 +1,101 @@
+---
+title: "Problem Set 2 (Question 2 and 3) by Jimmy Zheng"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+Question 2: ISL Chapter 2 lab Section 2.3.4 (R loading of Auto.data)
+```{r}
+library(ISLR2)
+auto = read.table("Auto.data")
+View(auto)
+head(auto)
+```
+```{r}
+auto = read.table("Auto.data", header = T, na.strings = "?", stringsAsFactors = T)
+```
+
+```{r}
+auto = read.csv("Auto.csv", na.strings = "?", stringsAsFactors = T)
+View(auto)
+head(auto)
+
+# set variable "origin" to as a categorical variable
+auto$origin = as.factor(auto$origin)
+```
+
+```{r}
+dim(auto)
+```
+```{r}
+auto = na.omit(auto)
+dim(auto)
+```
+
+```{r}
+names(auto)
+```
+Question 3: ISL Chapter 2: Exercises 9 (Ranalysis of Auto.data, which is a continuation of the lab section)
+
+(a) Which of the predictors are quantitative, and which are qualitative?
+```{r}
+sapply(auto, class)
+```
+"origin" and  "name" are qualitative variables.
+ "mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration" and "year" are quantitative variables.
+
+(b) What is the range of each quantitative predictor? You can answer this using the range() function.
+```{r}
+sapply(auto[ , 1:7], range)
+```
+(c) What is the mean and standard deviation of each quantitative predictor?
+```{r}
+# mean
+sapply(auto[ , 1:7], mean)
+
+# standard deviation
+sapply(auto[ , 1:7], sd)
+```
+(d) Now remove the 10th through 85th observations. What is the range, mean, and standard deviation of each predictor in the subset of the data that remains?
+```{r}
+auto_subset = auto[-c(10:85),]
+
+# range
+sapply(auto_subset[ , 1:7], range)
+
+# mean
+sapply(auto_subset[ , 1:7], mean)
+
+# standard deviation
+sapply(auto_subset[ , 1:7], sd)
+```
+(e) Using the full data set, investigate the predictors graphically, using scatterplots or other tools of your choice. Create some plots highlighting the relationships among the predictors. Comment on your findings.
+```{r}
+pairs(auto)
+
+# quantitative predictors only
+pairs(auto[ , 1:7])
+```
+From the pairwise scatter plots, we observe that several factors related to fuel consumption, such as engine "displacements," "cylinders," "horsepower," and "weight," are generally positively correlated with each other. This makes sense as we generally assume that sophisticated and larger cars are usually heavier and equipped with more cylinders and engines with higher displacements and horsepower, resulting in higher fuel consumption. 
+
+As for their relationship with "mpg," we observe that "displacements," "cylinders," "horsepower," and "weight" all tend to have a negative relationship with it since higher fuel consumption may correspond to lower efficiency. 
+
+The relationship between qualitative variables ("origin" & "name") with other quantitative variables is less apparent.
+
+(f) Suppose that we wish to predict gas mileage (mpg) on the basis of the other variables. Do your plots suggest that any of the other variables might be useful in predicting mpg? Justify your answer.
+```{r}
+# quantitative predictors only
+pairs(auto[ , 1:7])
+
+# qualitative predictors only
+pairs(auto[ , c(1,8:9)])
+
+cor(auto[,1:7])
+```
+Among all the quantitative variables, "displacement," "horsepower," and "weight" seem to have the most apparent negative relationship with "mpg." In fact, their sample correlations with "mpg" are indeed the highest, which are -0.8051269, -0.7784268, and -0.8322442 respectively. This is reasonable since heavier vehicles with more powerful engines tend to have greater inertia and energy consumption, contributing to decreased efficiency.
+
+However, qualitative variables, such as "name," are less favorable. In general, no apparent relationship between "mpg" and "name" could be observed from the scatter plot. Nevertheless, I would like to include the product of "origin" and any quantitative variable as interaction terms in the model to identify the synergy effects. From the scatter plot, Japanese cars (origin=3) seem to have higher "mpg" than American and European cars. 
+
+
+
+
