@@ -1,0 +1,119 @@
+---
+title: "STOR556 Hw1"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: "2023-01-18"
+---
+Problem 1. Find 2 univariate time series of your choice online and do the following for each of the two series:
+
+(a) Indicate the exact source for the time series data
+
+Data 1: Weekly stock index from 2013 to 2023, S&P Dow Jones Indices LLC, S&P 500 [SP500], retrieved from FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/SP500, January 17, 2023.
+
+Data 2: Quarterly unemployment rate from 1948 to 2022, U.S. Bureau of Labor Statistics, Unemployment Rate [UNRATE], retrieved from FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/UNRATE, January 18, 2023.
+
+```{r}
+sp = read.csv("SP500.csv")
+un = read.csv("UNRATE.csv")
+
+# as time series object
+sp = ts(data = sp[,2], start = 2013, end = 2023, frequency = 52)
+un = ts(data = un[,2], start = 1948, end = 2022, frequency = 12)
+```
+
+(b) Output the first 10 elements of the series in R
+```{r}
+sp[1:10]
+un[1:10]
+```
+
+(c) Produce a time plot of the series in R, after transforming the series into a time series object
+```{r}
+plot.ts(sp, ylab = "S&P500 Index", xlab = "Week")
+plot.ts(un, ylab = "U.S. Unemploymeny Rate", xlab = "Quarter")
+```
+(d) Discuss briefly possible objectives for analyzing the time series
+First of all, we could build a model through analzing the time series to predict or forecast future stock prices. We may also want to understand what causes the cyclical movement in unemployment rate, making inference and testing hypotheses. For complex real-life problems, a time series model could also be used to simulate independent sequences of output to avoid the huge cost of conducting field experiments. Other applications of time series model include filtering noises from signals and get general description of the time series data.
+
+Problem 2. Consider a time series model Xt, t is an integer, defined by Xt = ZtZt−1, where Zt is an IID noise with the common probability distribution P(Zt = 1) = 3/4
+and P(Zt = 2) = 1/4. Do the following:
+
+(a) Produce two different realizations of the model of length T = 50; Include the R code
+```{r}
+TT = 50000
+
+set.seed(1)
+zt1 <- rbinom(TT+1,1,0.75)
+zt1[which(zt1==0)]=2
+xt1 <- zt1[2:(TT+1)]*zt1[1:TT]
+
+zt2 <- rbinom(TT+1,1,0.75)
+zt2[which(zt2==0)]=2
+xt2 <- zt2[2:(TT+1)]*zt2[1:TT]
+
+xt1
+xt2
+```
+(b) Compute theoretically EXt and E(Xt^2); Compare these quantities with the sample averages for the two realizations; Include the R code;
+```{r}
+# For realization 1
+c(mean(xt1), mean(xt1^2))
+
+# For realization 2
+c(mean(xt2), mean(xt2^2))
+```
+(c) Compute theoretically E(XtXt−1) and Corr(Xt,Xt−1); Compare these quantities with sample averages for the two realizations; Include the R code;
+```{r}
+# For realization 1
+c(mean(xt1[-1]*xt1[-TT]), cor(xt1[-1], xt1[-TT]))
+
+# For realization 2
+c(mean(xt2[-1]*xt2[-TT]), cor(xt2[-1], xt2[-TT]))
+```
+(d) What are the possible values of Xt and the probabilities that Xt takes these values? Compare your answers to what you get from the two realizations, that is, what values you see in the two realizations and what the empirical probabilities are for those values in the realizations.
+```{r}
+# For realization 1
+c(mean(xt1==1), mean(xt1==2), mean(xt1==4))
+
+# For realization 2
+c(mean(xt2==1), mean(xt2==2), mean(xt2==4))
+```
+
+Problem 3. Come up with your own time series model and repeat parts (a)-(c) of Problem 2 for the model. Your model should have at least a trend or a periodic component, and incorporate IID noise in some way. (You can also think about part (d) for your model but do not include any soluton in the submitted homework.)
+
+My model is stated below:
+
+Consider a time series model Xt, t is an integer, defined by Xt = Zt + Zt-1, where Zt is an IID noise with the standard normal distribution N(0,1)
+
+(a) Produce two different realizations of the model of length T = 50; Include the R code
+```{r}
+TT = 50
+
+set.seed(1)
+zt3 <- rnorm(TT+1,0,1)
+xt3 <- zt3[2:(TT+1)]+zt3[1:TT]
+
+zt4 <- rnorm(TT+1,0,1)
+xt4 <- zt4[2:(TT+1)]+zt4[1:TT]
+
+xt3
+xt4
+```
+(b) Compute theoretically EXt and E(Xt^2); Compare these quantities with the sample averages for the two realizations; Include the R code;
+```{r}
+# For realization 1
+c(mean(xt3), mean(xt3^2))
+
+# For realization 2
+c(mean(xt4), mean(xt4^2))
+```
+(c) Compute theoretically E(XtXt−1) and Corr(Xt,Xt−1); Compare these quantities with sample averages for the two realizations; Include the R code;
+```{r}
+# For realization 1
+c(mean(xt3[-1]*xt3[-TT]), cor(xt3[-1], xt3[-TT]))
+
+# For realization 2
+c(mean(xt4[-1]*xt4[-TT]), cor(xt4[-1], xt4[-TT]))
+```
