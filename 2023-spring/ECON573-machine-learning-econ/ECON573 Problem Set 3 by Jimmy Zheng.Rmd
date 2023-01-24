@@ -1,0 +1,156 @@
+---
+title: "Problem Set 3 by Jimmy Zheng"
+output:
+  word_document: default
+  html_document: default
+date: "2023-01-23"
+---
+Question 1 ISL Chapter 3: Exercises 3
+
+Question 2 ISL Chapter 3: Exercise 9 Regression with Auto.data
+
+```{r}
+# import the Auto.data
+library(ISLR2)
+auto = read.csv("Auto.csv", na.strings = "?", stringsAsFactors = T)
+auto=na.omit(auto)
+```
+
+(a) Produce a scatterplot matrix which includes all of the variables in the data set.
+```{r}
+pairs(auto)
+```
+(b) Compute the matrix of correlations between the variables using the function cor(). You will need to exclude the name variable, cor() which is qualitative.
+```{r}
+cor(auto[ ,1:8])
+```
+(c) Use the lm() function to perform a multiple linear regression with mpg as the response and all other variables except name as the predictors. Use the summary() function to print the results.
+```{r}
+mod1 = lm(mpg~., data = auto[ ,1:8])
+summary(mod1)
+```
+Comment on the output. For instance:
+i. Is there a relationship between the predictors and the response?
+Yes. By doing a classical F-test, we reject the null hypothesis that all predictors have beta equal to zero as the p-value of the F-statistic is < 2.2e-16 < 0.01. Therefore, the joint relationship between all predictors and the response is significant at any conventional significance level of 1%, 5%, and 10%.
+ii. Which predictors appear to have a statistically significant relationship to the response?
+At 5% significance level, "displacement", "weight", "year" and "origin" are significant predictors since their individual t-statistic's p-values are all less than 0.05.
+iii. What does the coefficient for the year variable suggest?
+All else held constant, on average, the car's mpg will increase by 0.75 for each additional year.
+
+(d) Use the plot() function to produce diagnostic plots of the linear regression fit. Comment on any problems you see with the fit. Do the residual plots suggest any unusually large outliers? Does the leverage plot identify any observations with unusually high leverage?
+```{r}
+par(mfrow=c(2,2))
+plot(mod1)
+```
+There is a curved trend between the fitted values and residuals, and the spread of residuals tends to become higher as fitted values increase. This signifies that heteroscedasticity might exist, and a non-linear model may produce better fit. Also, from the QQ-norm plot, standardized residuals deviate from the norm line at the right tail, which means we should worry about normal distribution assumption of the error.
+
+From the standardized residual-fitted value plot, row 323, 326 and 327 seem to have high residuals and become potential outliers. 
+
+```{r}
+# Find potential outliers and their corresponding studentized residuals
+rstudent(mod1)[which(rstudent(mod1)>=3)]
+```
+In fact, row 245, 323, 326, and 327 are potential outliers with studentized residuals greather than 3. 
+
+```{r}
+# Find high leverage points and their corresponding leverage values
+hatvalues(mod1)[which(hatvalues(mod1)>=3*(7+1)/nrow(auto))]
+```
+Noticeably, row 14 has the highest leverage, from the residual-leverage plot and above calculation. 
+Row 9, 14, 27, 28 and 29 are high leverage points with leverage values greater than 3*typical leverage ((7+1)/392).
+
+(e) Use the * and : symbols to fit linear regression models with interaction effects. Do any interactions appear to be statistically significant?
+
+```{r}
+auto$origin = as.factor(auto$origin)
+
+# Interaction effects with "origin"
+mod_origin = lm(mpg~cylinders*origin+displacement:origin+horsepower*origin+weight:origin+acceleration*origin+year:origin, data = auto[,1:8])
+
+summary(mod_origin)
+```
+```{r}
+# F-test on interaction terms' joint significance
+mod_no_origin = lm(mpg~., data = auto[,1:8])
+
+anova(mod_no_origin, mod_origin)
+```
+After converting "origin" into factors, I did a F-test on the joint significance of those interaction terms involving "origin", which produces a p-value < 2.2e-16 < 0.01. Therefore, at any conventional significance level of 1%, 5% and 10%, we conclude that the interaction effects between the "origin" and other qualitative variables on mpg are significant. From the summary output t-statistics, we observe that the interation effects between "origin" and "acceleration", "weight", and "year" are particularly significant.
+
+(f) Try a few different transformations of the variables, such as log(X), √X, X2. Comment on your findings.
+```{r}
+# Plot non-linear trends
+auto$origin = as.numeric(auto$origin)
+
+par(mfrow=c(3,3))
+plot(mpg~., data = auto[,1:8])
+```
+From above scatterplots, the curved trends between mpg and displacement, horsepower, weight, and year are apparent. Therefore, we consider several polynomial and square-root transformations on those predictors: 
+
+```{r}
+# Transformation
+mod_tran = lm(mpg~cylinders+poly(displacement, 2)+poly(horsepower, 2)+poly(weight, 2)+acceleration+I(year^0.5)+origin, data = auto[ ,1:8])
+
+summary(mod_tran)
+```
+
+```{r}
+# Compare R^2's between the transformed and non-transformed model
+summary(mod_tran)$r.squared
+summary(mod1)$r.squared
+
+summary(mod_tran)$r.squared - summary(mod1)$r.squared
+```
+The transformed model increases the model's R^2 by about 0.04. 
+
+```{r}
+# Residual analysis
+par(mfrow=c(2,2))
+plot(mod_tran)
+```
+Although some potential outliers and high leverages still exist, from the residual vs fitted value plot, the transformed model performs better as no apparent trends could be observed, and the spread of residuals is relatively constant. 
+
+Question 3 ISL Chapter 3 Exercises 13(a)-(g) Regression with simulated data.
+
+(a) Using the rnorm() function, create a vector, x, containing 100 observations drawn from a N(0, 1) distribution. This represents a feature, X.
+(b) Using the rnorm() function, create a vector, eps, containing 100 observations drawn from a N(0, 0.25) distribution—a normal distribution with mean zero and variance 0.25.
+```{r}
+set.seed(1)
+x = rnorm(100, 0, 1)
+eps = rnorm(100, 0, sqrt(0.25))
+```
+
+(c) Using x and eps, generate a vector y according to the model Y = −1+0.5X+eps.What is the length of the vector y? What are the values of β0 and β1 in this linear model?
+```{r}
+y = -1 + 0.5*x + eps
+```
+The length of Y is 100. B0 is -1, and B1 is 0.5
+
+(d) Create a scatterplot displaying the relationship between x and y. Comment on what you observe.
+```{r}
+plot(y~x)
+```
+There is a positive linear relationship between x and y with random noise/variances. 
+
+e) Fit a least squares linear model to predict y using x. Comment on the model obtained. How do βˆ0 and βˆ1 compare to β0 and β1?
+```{r}
+mod_fit = lm(y~x)
+summary(mod_fit)
+```
+Both the estimated intercept and slope are highly significant, given that there p-values of t-statistic (2e-16 and 4.58e-15) are all less than 0.01. The values Beta_hat's (-1.01885 and 0.49947) are close to the true values of Betas (-1 and 0.5).
+
+(f) Display the least squares line on the scatterplot obtained in (d). Draw the population regression line on the plot, in a different color. Use the legend() command to create an appropriate legend.
+```{r}
+plot(y~x, main="The Relationship between X and Y", xlab="X", ylab="Y")
+abline(mod_fit, col="blue")
+curve(-1+0.5*x, col="red", add = T)
+legend(0.7,-1.7, c("Least Squares Line", "Population Line"), col=c("blue","red"), lty = 1)
+```
+(g) Now fit a polynomial regression model that predicts y using x and x2. Is there evidence that the quadratic term improves the model fit? Explain your answer.
+```{r}
+mod_poly = lm(y~poly(x,2))
+summary(mod_poly)
+summary(mod_fit)
+```
+The quadratic transformation does NOT improve the model fit. After the transformation, the p-value of the F-statistic increases from 4.583e-15 to 2.038e-14, and the quadratic term X^2 itself is NOT significant, with a p-value of 0.164. 
+
