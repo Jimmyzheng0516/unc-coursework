@@ -1,0 +1,136 @@
+---
+title: "STOR556 Hw2"
+output:
+  word_document: default
+  html_document: default
+date: "2023-01-25"
+---
+Question 1
+```{r}
+# For mt = t^3
+t = 1
+for (t in 1:3){
+  print((1/9)*(-1*(t-2)^3+4*(t-1)^3+3*t^3+4*(t+1)^3-1*(t+2)^3))
+  t = t+1
+}
+
+# For mt = t^4
+t = 1
+for (t in 1:3){
+  print((1/9)*(-1*(t-2)^4+4*(t-1)^4+3*t^4+4*(t+1)^4-1*(t+2)^4))
+  t = t+1
+}
+
+# For St = cos(2pit/3)
+t = 1
+for (t in 1:3){
+  print((1/9)*(-1*cos(2*pi*(t-2)/3)+4*cos(2*pi*(t-1)/3)+3*cos(2*pi*t/3)+4*cos(2*pi*(t+1)/3)-1*cos(2*pi*(t+2)/3)))
+  t = t+1
+}
+```
+
+Question 2
+```{r}
+library(itsmr)
+
+ts_deaths = ts(deaths, frequency = 12)
+dec_deaths = decompose(ts_deaths, "additive")
+
+# plot the result
+plot(dec_deaths)
+
+# plot the time series and the sum of the trend and seasonal components
+plot.ts(ts_deaths,xlab = "Time", ylab = "Accidental Death Numbers in the U.S.")
+lines(dec_deaths$trend+dec_deaths$seasonal, col = "red")
+
+# plot the time plot of random noise
+plot.ts(dec_deaths$random, xlab = "Time", ylab = "Random Noise")
+
+# Plot the correlogram of the residuals
+par(mar = c(5.1, 4.1, 5.5, 2.1))
+acf(na.omit(dec_deaths$random), lag.max = 71, ylim = c(-1, 1), main = "The Correlogram of Residuals")
+```
+
+```{r}
+# Least Squares Estimation
+t = time(deaths)
+xt = lm(deaths~t+I(t^2)+cos(2*pi*t/12)+sin(2*pi*t/12)+cos(2*pi*t/6)+sin(2*pi*t/6)+cos(2*pi*t/4)+sin(2*pi*t/4))
+
+# Plot the trend+seasonal component with the time series
+ts_trend_seasonal = ts(predict(xt), frequency = 12)
+
+plot.ts(ts_deaths, xlab = "Time", ylab = "Accidental Death Numbers in the U.S.")
+lines(ts_trend_seasonal, col="red")
+
+# Plot the time plot of residuals
+yt = ts(resid(xt))
+
+plot.ts(yt, xlab = "Time", ylab = "Random Residual")
+
+# Plot the correlogram of the residuals
+par(mar = c(5.1, 4.1, 5.5, 2.1))
+acf(yt, lag.max=71, ylim=c(-1,1), main = "The Correlogram of Residuals")
+```
+
+Question 4
+```{r}
+library(fpp3)
+
+price = ts(prices$wheat, frequency = 1)
+
+# Plot the time series of wheat price
+plot.ts(price, xlab = "Time", ylab = "Annual Prices for Wheat in British Pounds")
+
+# Plot the correlogram of the wheat price
+par(mar = c(5.1, 4.1, 5.5, 2.1))
+acf(na.omit(price), lag.max = 30, ylim=c(-1, 1), main = "The Correlogram of Wheat Prices in British Pounds")
+
+# Lag = 1, 2, 3, 4
+TT1 = length(price)
+
+par(mfrow=c(2,2))
+plot(price[2:TT1]~price[1:(TT1-1)], ylab = "Wheat Price", xlab = "Wheat Price in the Pevious Year")
+plot(price[3:TT1]~price[1:(TT1-2)], ylab = "Wheat Price", xlab = "Wheat Price in Two Years Ago")
+plot(price[4:TT1]~price[1:(TT1-3)], ylab = "Wheat Price", xlab = "Wheat Price in Three Years Ago")
+plot(price[5:TT1]~price[1:(TT1-4)], ylab = "Wheat Price", xlab = "Wheat Price in Four Years Ago")
+```
+
+```{r}
+bank = ts(bank_calls$Calls, frequency = 12)
+
+i=1
+my_list = list("")
+for (i in 1:164){
+  new_element = aggregate.ts(ts(bank[(1+(169*(i-1))):(169*i-13)], frequency = 12), nfrequency = 1)
+  new_element2 = aggregate.ts(ts(bank[(157+(169*(i-1))):(169*i)], frequency = 13), nfrequency = 1)
+  append(my_list, new_element, after = length(my_list))
+  append(my_list, new_element2, after = length(my_list))
+}
+
+# Aggregation
+bank_aggre = aggregate.ts(bank, nfrequency = 1)
+
+# Plot the time series within the first 30 days
+plot.ts(bank_aggre[1:420], ylab = "Aggregate Calls")
+
+# Plot the correlogram of the aggregate calls
+par(mar = c(5.1, 4.1, 5.3, 2.1))
+acf(bank_aggre, lag.max = 50, ylim=c(-1, 1), main = "The Correlogram of Aggregate Calls")
+
+# Lag = 7, 14, 21, 28
+TT2 = length(bank_aggre)
+par(mfrow=c(2,2))
+plot(bank_aggre[8:TT2]~bank_aggre[1:(TT2-7)], ylab = "Calls at t", xlab = "Calls t-7")
+plot(bank_aggre[15:TT2]~bank_aggre[1:(TT2-14)], ylab = "Calls at t", xlab = "Calls t-14")
+plot(bank_aggre[22:TT2]~bank_aggre[1:(TT2-21)], ylab = "Calls at t", xlab = "Calls t-21")
+plot(bank_aggre[29:TT2]~bank_aggre[1:(TT2-28)], ylab = "Calls at t", xlab = "Calls t-28")
+```
+
+```{r}
+gas = ts(canadian_gas$Volume, frequency = 12)
+plot.ts(gas, xlab = "Time", ylab = "Monthly Canadian Gas Consumption")
+
+par(mar = c(5.1, 4.1, 5.5, 2.1))
+acf(na.omit(gas), lag.max = 80, ylim=c(-1, 1), main = "The Correlogram of Monthly Canadian Gas Consumption")
+```
+

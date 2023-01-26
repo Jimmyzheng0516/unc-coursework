@@ -1,0 +1,94 @@
+---
+title: "STOR556 Hw1"
+output:
+  word_document: default
+  html_document: default
+date: "2023-01-26"
+---
+Question 1
+```{r}
+# Loan amount for certain = certain expense - certain income
+loan_certain = 8400 + 5400 - (3000 + 4000)
+
+# 1,000,000 random generations of uncertain expenses and incomes
+n = 1000000
+set.seed(1)
+meals = runif(n, 900, 1350)
+entertain = runif(n, 600, 1200)
+transport = runif(n, 200, 600)
+book = runif(n, 400, 800)
+waiting = runif(n, 3000, 5000)
+tutoring = runif(n, 2000, 3000)
+
+# Loan amount
+loan = loan_certain + (meals + entertain + transport + book) - (waiting + tutoring)
+
+# Plot the distribution
+h = hist(loan, breaks = 100, main = "Histogram of Loan Size (frequency)")
+h$density = h$counts/sum(h$counts)*100
+plot(h,freq=FALSE, main = "Histogram of Loan Size (proportions)", ylab = "Proportions (%)")
+
+# Basic statistics
+mean(loan) # mean
+sd(loan) # standard deviation
+
+# cdf function 
+cdf = function(x){
+  mean((loan<=x))
+}
+
+# P(a<X<b)
+p = function(a,b){
+  cdf(b)-cdf(a)
+}
+
+# Example: Calculate the probability of loan size being between 2000 and 3000
+p(2000, 3000)
+
+# Produce a distribution table
+i = 1
+df = c()
+for (i in 1:10){
+  Probability=p(1000+(i-1)*500, 1000+i*500)
+  df = as.data.frame(c(df, Probability))
+}
+
+df = rbind(Loan_size = c("1000 to 1500", "1500 to 2000", "2000 to 2500", "2500 to 3000", "3000 to 3500", "3500 to 4000", "4000 to 4500", "4500 to 5000", "5000 to 5500", "5500 to 6000"), df) 
+
+df = as.data.frame(t(df))
+colnames(df) = c("Loan Size ($)", "Proportion (%)")
+df$`Proportion (%)` = as.numeric(df[, 2])*100
+rownames(df) = 1:nrow(df)
+
+df
+
+write.csv(df, "df.csv")
+
+# Compare with normal distribution
+hist(loan, breaks = 100, main = "Histogram of Loan Size (density)", freq = F, ylim = c(0, 0.0008))
+lines(density(loan), col="blue")
+curve(dnorm(x, mean = mean(loan), sd = sd(loan)), col="red", add = T)
+legend(4200, 0.0008, legend=c("Data Density Curve", "Normal Density Curve"), # (1,95) is the location coordinate
+       col=c("blue", "red"), lty=1:1, cex=0.8,
+       box.lty=1)
+```
+
+Question 2
+```{r}
+# 1,000,000 random generations of u
+n = 1000000
+u = runif(n, 0, 1)
+
+# Calculate the expected value of h(u)
+h_u = sqrt((1-u^2))
+
+expected_value = mean(h_u)
+
+area = expected_value*48
+
+area
+```
+
+
+
+
