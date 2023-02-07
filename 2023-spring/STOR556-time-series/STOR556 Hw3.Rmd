@@ -1,0 +1,128 @@
+---
+title: "STOR556 Hw3"
+output:
+  word_document: default
+  html_document: default
+date: "2023-02-06"
+---
+Problem 2 Part(b)
+
+```{r}
+set.seed(1)
+
+ar1 = arima.sim(model=list(order = c(7, 0, 0), ar = c(0.7, -0.7^2, 0.7^3, -0.7^4, 0.7^5, -0.7^6, 0.7^7)), n = 500)
+
+par(mfrow = c(1, 2))
+par(mar = c(5.1, 4.1, 5.3, 2.1))
+plot(ar1)
+acf(ar1, lag.max = 20, ylim = c(-1, 1))
+```
+It is close to the ACF of the MA(1) model above. The above calculation shows that the model's ACF = 1 at h=0, and ACF = 79/149 = 0.4698 at h=1, and ACF = 0, at h>=2. From the ACF plot, at h=0 and h=1, the corresponding sample ACF's are approximatly 1 and 0.47. For h>=2, none of the sample ACFs is significant (all of them are within the blue dotted significance band), which is consistent to the model. 
+
+Problem 3
+
+Part(a)
+```{r}
+ts1 = ts(read.table("SUNSPOTS.txt"))
+
+par(mfrow = c(1, 2))
+par(mar = c(5.1, 4.1, 5.3, 2.1))
+plot(ts1, ylab="SUNSPOTS", main="Time Plot of SUNSPOTS")
+acf(ts1, lag.max = 99, ylim=c(-1,1), main="Correlogram of SUNSPOTS")
+
+# demeaned series
+ts2 = ts1-mean(ts1)
+```
+
+Part(b)
+```{r}
+# order p suggested by AIC
+library(forecast)
+
+auto.arima(ts2, max.p = 99, max.d = 0, max.q = 0, ic="aic", allowmean = FALSE)
+```
+AR(4) is suggested by AIC
+
+```{r}
+# order p suggested by BIC
+auto.arima(ts2, max.p = 99, max.d = 0, max.q = 0, ic="bic", allowmean = FALSE)
+```
+AR(2) is suggested by BIC
+
+```{r}
+# order p suggested by PACF
+par(mar = c(5.1, 4.1, 5.3, 2.1))
+pacf(ts2, lag.max = 20, ylim=c(-1, 1))
+```
+AR(2) is suggested by PACF as PACF at h=2 is largest h that makes phi_hh_hat signifiacnt, other phi_hat are all within the significance band.
+
+Part(c)
+```{r}
+# fit the time series by AR(2)
+ar2 = arima(x=ts2, order=c(2, 0, 0), include.mean = FALSE, method = "ML")
+ar2
+```
+Part(d)
+```{r}
+resid.ar2 = resid(ar2)
+
+# plot the sample ACF and PACF of the residuals
+par(mfrow = c(1, 2))
+par(mar = c(5.1, 4.1, 5.3, 2.1))
+acf(resid.ar2, lag.max = 20, ylim = c(-1, 1))
+pacf(resid.ar2, lag.max = 20, ylim = c(-1, 1))
+
+# check the normal assumption of the residuals
+qqnorm(resid.ar2, main = "")
+qqline(resid.ar2)
+```
+From the above qq-norm plot, the sample points deviate from the qq-norm line at the two tails, so the model's residuals are NOT largely consistent with the assumption of normal distribution.
+
+Part(e)
+
+Denote X_t = SUNSPOTS at time t
+
+X_t = 46.93 + Y_t with Y_t = 1.4064Y_t-1 - 0.7131Y_t-2 + Z_t, where Z_t is a white noise model.
+
+```{r}
+mean(ts1)
+summary(ar2)
+```
+Part(f)
+
+```{r}
+t = 101:105
+h = 5
+
+# demeaned forecast
+ts2.forecast = predict(ar2, h)
+
+plus.or.minus = 1.96*ts2.forecast$se
+
+# mean
+mean.forecast = mean(ts1)
+
+# combined forecast
+ts.forecast.pred = mean.forecast + ts2.forecast$pred
+
+lower = ts.forecast.pred - plus.or.minus
+upper = ts.forecast.pred + plus.or.minus
+
+# plot
+plot(ts1, ylab="SUNSPOTS")
+lines(t, ts.forecast.pred, lwd=2)
+lines(t, lower, lty=2, lwd=2)
+lines(t, upper, lty=2, lwd=2)
+title("Forecasts for the SUNSPOTS time series")
+```
+
+
+
+
+
+
+
+
+
+
+

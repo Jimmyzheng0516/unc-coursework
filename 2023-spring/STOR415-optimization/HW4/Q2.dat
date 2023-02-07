@@ -1,0 +1,23 @@
+param n :=3; # 3 suppliers
+param m :=6; # 3 constraints for size + 3 contraints for valves (less than 700)
+
+param A: 1 2 3 :=
+1 0.4 0.3 0.2
+2 0.4 0.35 0.2
+3 0.2 0.35 0.6
+4 -1 0 0
+5 0 -1 0
+6 0 0 -1;
+
+param b :=
+1 500
+2 300
+3 300
+4 -700
+5 -700
+6 -700;
+
+param c :=
+1 5
+2 4
+3 3;
