@@ -1,0 +1,110 @@
+---
+title: "Problem Set 5 by Jimmy Zheng"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: "2023-02-08"
+---
+Question 1
+
+(a) Plot Pr(Y=k|X=2) for k=0 ,1,...,15.
+```{r}
+lambda = exp(1 + 0.5*2)
+plot(dpois(0:15, lambda = lambda), ylab = "Pr(Y=k|X=2)", xlab = "k")
+```
+
+(b) What is the most plausible value for Ywhen X=2 ?
+```{r}
+which.max(dpois(0:15, lambda = lambda))
+```
+
+(c) Construct a 95% prediction interval for Y.
+```{r}
+qpois(c(0.025, 0.975), lambda = lambda)
+```
+
+Question 2: ISL Chapter 4: Exercise (applied) 13(e)-(i).
+```{r}
+# Import the data
+library(ISLR2)
+
+# Split the Dataset
+train = (Weekly$Year < 2009)
+Weekly_09_to_10 = Weekly[!train, ]
+
+# The Logistic Regression Model
+mod_log = glm(Direction ~ Lag2, data = Weekly, family = binomial, subset = train)
+
+# Confusion Matrix and Overall Error Rate
+predicted_prob_log = predict(mod_log, Weekly_09_to_10, type = "response")
+predicted_direction_log = rep("Down", length(predicted_prob_log))
+predicted_direction_log[predicted_prob_log > 0.5] = "Up"
+Direction_09_to_10 = Weekly$Direction[!train]
+
+table(predicted_direction_log, Direction_09_to_10)
+
+mean(predicted_direction_log==Direction_09_to_10)
+```
+
+(e) Repeat (d) using LDA.
+```{r}
+library(MASS)
+mod_lda = lda(Direction ~ Lag2, data = Weekly, subset = train)
+
+# Confusion Matrix and Overall Correct Prediction Rate
+lda.pred = predict(mod_lda, Weekly_09_to_10)
+lda.class = lda.pred$class
+table(lda.class, Direction_09_to_10)
+mean(lda.class==Direction_09_to_10)
+```
+
+(f) Repeat (d) using QDA.
+```{r}
+mod_qda = qda(Direction ~ Lag2, data = Weekly, subset = train)
+
+# Confusion Matrix and Overall Correct Prediction Rate
+qda.class = predict(mod_qda, Weekly_09_to_10)$class
+table(qda.class, Direction_09_to_10)
+mean(qda.class==Direction_09_to_10)
+```
+
+(g) Repeat (d) using KNN with K = 1.
+```{r}
+library(class)
+set.seed(1)
+train.X = Weekly[train, ]$Lag2
+test.X = Weekly[!train, ]$Lag2
+train.Direction = Weekly[train, ]$Direction
+
+# make sure train.X and test.X has the same dimension
+dim(train.X) = c(length(train.X), 1)
+dim(test.X) = c(length(test.X), 1)
+
+knn.pred = knn(train.X, test.X, train.Direction, k=1)
+
+# Confusion Matrix and Overall Correct Prediction Rate
+table(knn.pred, Direction_09_to_10)
+mean(knn.pred==Direction_09_to_10)
+```
+
+(h) Repeat (d) using naive Bayes.
+```{r}
+library(e1071)
+mod_nb = naiveBayes(Direction ~ Lag2, data = Weekly, subset = train)
+
+# Confusion Matrix and Overall Correct Prediction Rate
+nb.class = predict(mod_nb, Weekly_09_to_10)
+table(nb.class, Direction_09_to_10)
+mean(nb.class==Direction_09_to_10)
+```
+
+(i) Which of these methods appears to provide the best results on this data?
+The logistic regression model and LDA provide the best results since they have the highest correct prediction rate of 0.625.
+
+Question 3: ISL Chapter 5: Exercise 1.
+
+1. Using basic statistical properties of the variance, as well as single variable calculus, derive (5.6). In other words, prove that α given by (5.6) does indeed minimize Var(aX + (1 − a)Y).
+
+
+

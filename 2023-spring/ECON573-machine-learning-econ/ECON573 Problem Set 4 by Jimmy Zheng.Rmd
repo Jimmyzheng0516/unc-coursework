@@ -1,0 +1,95 @@
+---
+title: "ISL Chapter 4: Exercise (applied) 13(a)-(d)"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+date: "2023-02-01"
+---
+Problem Set 4 - Part 2
+
+ISL Chapter 4: Exercise (applied) 13(a)-(d). (Predicting the direction of weekly stock returns)
+
+(a) Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
+
+```{r}
+# Import the data
+library(ISLR2)
+
+# Summary Statistics
+dim(Weekly)
+summary(Weekly)
+
+# Correlation Matrix and Pairwise Scatterplot
+cor(Weekly[ , -9])
+pairs(Weekly[ , -9])
+```
+From the correlation matrix and pairwise scatterplot, the only apparent pattern is the relationship between "Year" and "Volume", with a sample correlation of 0.84194162 The correlations between the lags and other variables are ignorable, and their scatterplots display clouds of data with no apparent relationship. 
+
+In fact, if we plot the "Volume" against "Year" as shown below, we could observe that as time progresses, the distribution of "Volume" tends to shift upwards. This makes sense as the economic expansion between 1990 and 2010 could cause the number of shares traded daily increase, on average. 
+```{r}
+# Volume vs Year
+plot(Volume~Year, data = Weekly)
+```
+
+(b) Use the full data set to perform a logistic regression with Direction as the response and the five lag variables plus Volume as predictors. Use the summary function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+
+```{r}
+mod1 <- glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, 
+            data = Weekly, family = binomial)
+summary(mod1)
+```
+Only "Lag2" appears to be statistically significant with p-value of 0.0296 < 0.05. Other variables are all not significant.
+
+(c) Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
+```{r}
+predicted_prob = predict(mod1, type = "response")
+
+predicted_direction = rep("Down", 1089)
+predicted_direction[predicted_prob > 0.5] = "Up"
+
+# Confusion Matrix
+table(predicted_direction, Weekly$Direction)
+```
+
+
+```{r}
+# Overall Training Error
+mean(predicted_direction != Weekly$Direction)
+```
+
+```{r}
+# Error Rate (given the true direction is "Up")
+48/(48+557)
+```
+
+```{r}
+# Error Rate (given the true direction is "Down")
+430/(54+430)
+```
+
+Compared with the error rate of predicting "Up", the model predicts "Down" poorly, which drives up the overall training error rate.
+
+(d) Now fit the logistic regression model using a training data period from 1990 to 2008, with Lag2 as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
+
+```{r}
+train = (Weekly$Year < 2009)
+Weekly_09_to_10 = Weekly[!train, ]
+
+mod2 = glm(Direction ~ Lag2, data = Weekly, family = binomial, subset = train)
+
+predicted_prob = predict(mod2, Weekly_09_to_10, type = "response")
+predicted_direction = rep("Down", length(predicted_prob))
+predicted_direction[predicted_prob > 0.5] = "Up"
+Direction_09_to_10 = Weekly$Direction[!train]
+
+table(predicted_direction, Direction_09_to_10)
+```
+
+```{r}
+# Overall Correctness
+mean(predicted_direction == Direction_09_to_10)
+```
+
+
+
