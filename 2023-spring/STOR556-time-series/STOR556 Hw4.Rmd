@@ -1,0 +1,356 @@
+---
+title: "STOR556 Hw4"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+date: "2023-02-15"
+---
+Problem 1
+
+(a) Produce a time plot of the series; As the variability of the series increases for higher values, take a suitable preliminary transformation of the series, and produce its time plot as well; In the following parts, work with the transformed series unless stated otherwise;
+```{r}
+ap = read.table("airpass.txt")
+ap = ts(ap)
+
+# Time plots
+par(mfrow = c(1,2))
+plot.ts(ap, ylab = "airpass")
+plot.ts(log(ap), ylab = "log(airpass)")
+```
+
+```{r}
+# Transform the time series
+ap = log(ap)
+```
+
+(b) Fit a suitable polynomial trend and a seasonal component to the series using regression; Produce a time plot depicting the time series and the sum of the trend and seasonal components;
+```{r}
+t = time(ap)
+
+# Fit the trend and seasonal component by regression
+lm.ap = lm(ap~t+cos(2*pi*t/12)+sin(2*pi*t/12)+cos(2*pi*t/6)+sin(2*pi*t/6), data = ap)
+
+pred = ts(lm.ap$fitted.values)
+
+plot.ts(ap, ylab = "log(airpass)")
+lines(pred, col="red")
+```
+
+(c) Produce a time plot and a correlogram of the residuals obtained after removing the trend and seasonal components from the series;
+```{r}
+ap_resid = resid(lm.ap)
+
+# time plot
+par(mfrow = c(1,2))
+plot.ts(ap_resid, ylab="residual")
+par(mar = c(5.1, 4.1, 4, 2.1))
+acf(ap_resid, lag.max = 20, ylim = c(-1,1), main = "The Correlogram of Residual")
+```
+
+(d) Fit an AR(p) model to the residual time series for an order p suggested by some method discussed in class; Include the output;
+```{r}
+# Use BIC to choose p
+library(forecast)
+
+auto.arima(ap_resid, max.p = 10, max.q = 0, max.d = 0, ic="bic", allowmean = F)
+```
+AR(1) is suggested by BIC.
+
+```{r}
+ar1 = arima(ap_resid, order = c(1, 0, 0), include.mean = F, method = "ML")
+ar1
+```
+
+(e) Produce the sample ACF and PACF of the AR(p) model residuals. Are the AR(p) model residuals consistent with the assumption of a white noise model? Are the AR(p) model residuals consistent with the assumption of normal distribution?
+```{r}
+ar1_resid = resid(ar1)
+
+# Sample ACF and PACF
+par(mfrow = c(1,2))
+par(mar = c(5.1, 4.1, 4, 2.1))
+acf(ar1_resid, lag.max = 20, ylim = c(-1, 1))
+par(mar = c(5.1, 4.1, 4, 2.1))
+pacf(ar1_resid, lag.max = 20, ylim = c(-1, 1))
+```
+The AR(1) model residuals are NOT consistent with the assumption of a white noise model since at some lags h>0, both the sample ACF and PACF are significant (outside the blue significance band).
+
+```{r}
+# QQ-norm plot
+qqnorm(ar1_resid, main = "")
+qqline(ar1_resid)
+```
+The AR(1) model residuals are NOT consistent with the assumption of normal distribution since at the two tails of the qq-norm plot, many residuals significantly deviate from the qq-line. 
+
+(f) Write down the exact models that were fitted to the transformed time series and the original time series;
+$$
+log(X_t) = 4.81 + 0.01\,t-0.14\cos(\frac{2\pi t}{12})-0.05\sin(\frac{2\pi t}{12})\\-0.02\cos(\frac{2\pi t}{6})+0.08\sin(\frac{2\pi t}{6})+Y_t\;;\\Y_t=0.45\,Y_{t-1}+Z_t\;;Z_t \thicksim WN(0, \sigma_z^2)
+$$
+$$
+X_t = \large e^{4.81 + 0.01\,t-0.14\cos(\frac{2\pi t}{12})-0.05\sin(\frac{2\pi t}{12})-0.02\cos(\frac{2\pi t}{6})+0.08\sin(\frac{2\pi t}{6})+Y_t}\;;\\Y_t=0.45\,Y_{t-1}+Z_t\;;Z_t \thicksim WN(0, \sigma_z^2)
+$$
+
+```{r}
+# Retrieve the coefficients
+summary(lm.ap)
+summary(ar1)
+```
+
+(g) Forecast the original time series for 5 steps into the future and provide confidence intervals for the forecasts; Provide the code with the outputs, and also produce a time plot with this information. Note: For simplicity, when computing forecast confidence intervals, just take into account the uncertainty about the prediction of the residual series through AR(p) model above (and not that for regression to estimate trend and seasonal components).
+```{r}
+h = 5
+
+# Forecast: Residuals
+residual.forecast = predict(ar1, h)
+
+plus.or.minus = 1.96*residual.forecast$se
+
+t_h = (145:149)
+
+# Forecast: Trend+Seasonal
+trend_seasonal.forecast = lm.ap$coefficients[1]+lm.ap$coefficients[2]*t_h+lm.ap$coefficients[3]*cos(2*pi*t_h/12)+ lm.ap$coefficients[4]*sin(2*pi*t_h/12)+lm.ap$coefficients[5]*cos(2*pi*t_h/6)+lm.ap$coefficients[6]*sin(2*pi*t_h/6)
+
+# Combine the forecasts
+ts.forecast = trend_seasonal.forecast+residual.forecast$pred
+lower = ts.forecast - plus.or.minus
+upper = ts.forecast + plus.or.minus
+
+# Time Plot
+plot(ap, xlim=c(0,149))
+lines(t_h, ts.forecast, lwd=2, col="red")
+lines(t_h, lower, lty=2, lwd=2)
+lines(t_h, upper, lty=2, lwd=2)
+```
+
+Problem 2
+
+(a) Write your own code that generates an AR(1) time series of length T and parameter phi < 1, but where the white noise series {Zt} is IID noise with a common distribution for each Zt being the Student t-distribution with 3 for the degrees of freedom. Produce four realizations of this time series for T = 200 and phi = 0.7. Discuss any notable features of the series.
+```{r}
+TT = 200
+
+set.seed(1)
+zt1 = rt(TT, 3)
+xt1 = rep(0, TT)
+for (i in 1:(TT-1)){
+  xt1[i+1] = 0.7*xt1[i] + zt1[i+1]
+}
+zt2 = rt(TT, 3)
+xt2 = rep(0, TT)
+for (i in 1:(TT-1)){
+  xt2[i+1] = 0.7*xt2[i] + zt2[i+1]
+}
+zt3 = rt(TT, 3)
+xt3 = rep(0, TT)
+for (i in 1:(TT-1)){
+  xt3[i+1] = 0.7*xt3[i] + zt3[i+1]
+}
+zt4 = rt(TT, 3)
+xt4 = rep(0, TT)
+for (i in 1:(TT-1)){
+  xt4[i+1] = 0.7*xt4[i] + zt4[i+1]
+}
+
+xt1 = ts(xt1)
+xt2 = ts(xt2)
+xt3 = ts(xt3)
+xt4 = ts(xt4)
+
+par(mfrow=c(2, 2))
+plot.ts(xt1)
+plot.ts(xt2)
+plot.ts(xt3)
+plot.ts(xt4)
+```
+All the four realizations of the AR(1) model shows dependency across time as some large and persistent swings appears frequently, i.e. when X_{t-1} is increasing, X_t is also likely to be increasing. However, because the random noise Z_t has been added, X_t fluctuates significantly, disturbing part of the time dependency.
+
+(b) By default, the R function arima.sim simulates AR(1) series assuming IID noise {Zt} with standard normal distribution. But it also has an option rand.gen that allows to have other distributions for the IID noise {Zt}. Repeat part (a) using this function. The time plots in (a) and (b) should have similar features.
+```{r}
+# Use arima.sim to simulate zt with Student t distribution
+set.seed(1)
+xt_1 = arima.sim(list(order=c(1, 0, 0), ar=0.7), rand.gen = function(n,...) rt(n, 3), n=200)
+xt_2 = arima.sim(list(order=c(1, 0, 0), ar=0.7), rand.gen = function(n,...) rt(n, 3), n=200)
+xt_3 = arima.sim(list(order=c(1, 0, 0), ar=0.7), rand.gen = function(n,...) rt(n, 3), n=200)
+xt_4 = arima.sim(list(order=c(1, 0, 0), ar=0.7), rand.gen = function(n,...) rt(n, 3), n=200)
+
+par(mfrow=c(2, 2))
+plot.ts(xt_1)
+plot.ts(xt_2)
+plot.ts(xt_3)
+plot.ts(xt_4)
+```
+
+(c) For the rest of the problem, consider one of the generated series from (a) or (b). Compare the sample variance of the series to the model one computed in class. Produce the correlogram of the series for 10 lags and add to it the model ACF for the same lags.
+
+Choose the one with student t distribution (df=3)
+```{r}
+# White Noise's variance
+sigma_z = 3/(3-2)
+
+# Xt model level variance
+sigma_z/(1-0.7^2)
+
+# Xt sample variance
+var(xt_1)
+```
+The sample variance is 5.001146, slightly different from that of the model 5.882353.
+
+```{r}
+# Sample and Model ACF
+par(mar = c(5.1, 4.1, 4, 2.1))
+acf(xt_1, lag.max = 10, ylim = c(-1, 1))
+lines(seq(0, 10), 0.7^seq(0, 10), lty="dashed", col="red")
+```
+(d) Produce the sample partial autocorrelation function plot of the series for 10 lags. What order p does it suggest if AR(p) model is fitted to the time series?
+```{r}
+par(mar = c(5.1, 4.1, 4, 2.1))
+pacf(xt_1, lag.max = 10, ylim = c(-1, 1))
+```
+The PACF suggests AR(1), since h=1 is the only significant lag outside the blue significance band.
+
+
+(e) Fit AR(1) model to the series using the R function arima. Is the estimated AR parameter close to phi = 0.7? Is the estimated variance of the errors close to the variance of the Student t-distribution?
+```{r}
+mod_xt = arima(xt_1, order = c(1, 0, 0), include.mean = F, method = "ML")
+summary(mod_xt)
+```
+The estimated AR parameter is 0.6219, which is close to 0.7. The estimated variance of the errors is only 3.038, which is also to 3,the variance of the Student t-distribution.
+
+(f) Consider the residuals from the AR(1) fit in part (d) and produce their normal quantile plot. Which features of the latter plot suggest that the residuals are not consistent with the assumption of normal distribution?
+```{r}
+qqnorm(resid(mod_xt), main="")
+qqline(resid(mod_xt))
+```
+At the two tails of the qq-norm line, the residuals deviate from the qq-norm line significantly, so the residuals are not likely to follow normal distribution. However, the two thick tails of the student t distribution accomodates extreme values at the two tails.
+
+Problem 3
+
+(a) Produce and include a time plot of the series.
+```{r}
+library(forecast)
+
+lynx = ts(lynx, frequency = 1)
+plot.ts(lynx)
+```
+
+(b) What AR model is suggested for the series through
+auto.arima(lynx,max.p=5,max.q=0,ic=“aic”,allowmean = TRUE)?
+```{r}
+auto.arima(lynx,max.p=5,max.q=0,ic="aic",allowmean = TRUE)
+```
+AR(2) model is suggested
+
+(c) Compute the root mean square forecasting error for one-step ahead using time series cross-validation for AR(1), AR(2), AR(3) and AR(4) models. Which of these models has the smallest error? Is it the same model as in part (b)? 
+```{r}
+far1 = function(x, h){forecast(Arima(x, order=c(1,0,0)), h=h)}
+e1 = tsCV(lynx, far1, h=1)
+sqrt(mean(e1^2,na.rm = TRUE))
+
+far2 = function(x, h){forecast(Arima(x, order=c(2,0,0)), h=h)}
+e2 = tsCV(lynx, far2, h=1)
+sqrt(mean(e2^2,na.rm = TRUE))
+
+far3 = function(x, h){forecast(Arima(x, order=c(3,0,0)), h=h)}
+e3 = tsCV(lynx, far3, h=1)
+sqrt(mean(e3^2,na.rm = TRUE))
+
+far4 = function(x, h){forecast(Arima(x, order=c(4,0,0)), h=h)}
+e4 = tsCV(lynx, far4, h=1)
+sqrt(mean(e4^2,na.rm = TRUE))
+```
+It is the same as in part(b). AR(2) model results in the smallest root MSE of 918.4967.
+
+(d) Compare the square root of the residual variance from part (b) and the smallest root mean square forecasting error from part (c). Which one is larger?
+```{r}
+# From part(b)
+au = auto.arima(lynx,max.p=5,max.q=0,ic="aic",allowmean = TRUE)
+sqrt(au$sigma2)
+```
+The square root of the residual variance from part (b) is 888.2118, smaller than 918.4967
+
+Problem 4
+
+(a) Plot the series and discuss the main features of the data.
+```{r}
+library(fpp2)
+
+book = ts(books)
+plot.ts(book)
+```
+In general, an increasing trend exists in noth the daily sales of paperback and hardcover books. However, paperback books' sales appear stronger and more apparent seasonality than hardcover books.
+
+(b) Use the ses function to forecast each series, and plot the forecasts.
+```{r}
+paperback = ts(books[,1])
+hardcover = ts(books[,2])
+
+fc_p = ses(paperback, h=4)
+fc_h = ses(hardcover, h=4)
+
+autoplot(fc_p) + autolayer(fitted(fc_p), series = "Fitted") + ylab("Paperback Books' Daily sales") + xlab("Day")
+autoplot(fc_h) + autolayer(fitted(fc_h), series = "Fitted") + ylab("Hardcover Books' Daily sales") + xlab("Day")
+```
+
+(c) Compute the RMSE values for the training data in each case.
+```{r}
+# Paperback
+accuracy(fc_p)
+
+# Hardcover
+accuracy(fc_h)
+```
+
+(d) Apply Holt’s linear method to the paperback and hardback series and plot four-day forecasts in each case.
+```{r}
+fc_p_holt = holt(paperback, damped = T, h=4)
+fc_h_holt = holt(hardcover, damped = T, h=4)
+
+autoplot(fc_p_holt) + ylab("Paperback Books' Daily sales") + xlab("Day")
+autoplot(fc_h_holt) + ylab("Hardcover Books' Daily sales") + xlab("Day")
+```
+
+(e) Compare the RMSE measures of Holt’s method for the two series to those of simple exponential smoothing. (Remember that Holt’s method is using one more parameter than SES.) Discuss the merits of the two forecasting methods for these data sets.
+```{r}
+# ses RMSE
+accuracy(fc_p)
+accuracy(fc_h)
+
+# Holt's RMSE
+accuracy(fc_p_holt)
+accuracy(fc_h_holt)
+```
+For both paperback and hardcover books, Holt's method results in lower RMSE than simple exponential smoothing. This suggests that maybe Holt's method is better than ses since it extended ses to allow the forecasting of data with a trend, which is consistent with the increasing trend in the book sales data. This method involves a forecast equation and two smoothing equations (one for the level and one for the trend). In fact, an increasing trend indeed exist in noth the daily sales of paperback and hardcover books.
+
+(f) Compare the forecasts for the two series using both methods. Which do you think is best?
+```{r}
+autoplot(fc_p) + autolayer(fitted(fc_p), series = "Fitted") + ylab("Paperback Books' Daily sales") + xlab("Day")
+autoplot(fc_h) + autolayer(fitted(fc_h), series = "Fitted") + ylab("Hardcover Books' Daily sales") + xlab("Day")
+autoplot(fc_p_holt) + ylab("Paperback Books' Daily sales") + xlab("Day")
+autoplot(fc_h_holt) + ylab("Hardcover Books' Daily sales") + xlab("Day")
+```
+
+As illustrated above, Holt's method is better as it allows the forecasting of data with a trend, which is consistent with the increasing trend in the book sales data.
+
+(g) Calculate a 95% prediction interval for the first forecast for each series, using the RMSE values and assuming normal errors. Compare your intervals with those produced using ses and holt.
+```{r}
+# paperback (ses)
+paperback_ses = c(fc_p$lower[1,2], fc_p$upper[1,2],fc_p$mean[1]-1.96*accuracy(fc_p)[2],fc_p$mean[1]+1.96*accuracy(fc_p)[2])
+
+# hardcover (ses)
+hardcover_ses = c(fc_h$lower[1,2], fc_h$upper[1,2],fc_h$mean[1]-1.96*accuracy(fc_h)[2],fc_h$mean[1]+1.96*accuracy(fc_h)[2])
+
+# paperback (Holt's)
+paperback_Holt = c(fc_p_holt$lower[1,2], fc_p_holt$upper[1,2], fc_p_holt$mean[1]-1.96*accuracy(fc_p_holt)[2],fc_p_holt$mean[1]+1.96*accuracy(fc_p_holt)[2])
+
+# hardcover (Holt's)
+hardcover_Holt = c(fc_h_holt$lower[1,2], fc_h_holt$upper[1,2], fc_h_holt$mean[1]-1.96*accuracy(fc_h_holt)[2],fc_h_holt$mean[1]+1.96*accuracy(fc_h_holt)[2])
+
+df = as.data.frame(rbind(paperback_ses, hardcover_ses, paperback_Holt, hardcover_Holt))
+colnames(df) = c("Original 95% Lower Bound", "Original 95% Upper Bound", "RMSE 95% Lower Bound", "RMSE 95% Upper Bound")
+df
+```
+The intervals produced by RMSE are all narrower than intervals produced using ses and holt, but they are still close to each other.
+
+
+
+
+
