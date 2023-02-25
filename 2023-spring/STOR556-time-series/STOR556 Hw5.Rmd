@@ -1,0 +1,171 @@
+---
+title: "STOR556 Hw5"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-02-22"
+---
+Problem 2
+
+(a) Generate the following random walk with a drift
+```{r}
+set.seed(1)
+t = 1:100
+xt = -0.5*t + cumsum(rnorm(100))
+xt = ts(xt)
+
+# Time Plot
+plot.ts(xt)
+```
+(b) Can you recover this model with the function auto.arima and suitable inputs? Produce the output and answer the question.
+
+Yes, the model could also be expressed as the following:
+$$
+\mathrm{X}_t = -0.5 + \mathrm{X}_{t-1} + Z_t
+$$
+This model is an ARIMA(0,1,0) model with drift = -0.5.
+
+```{r}
+library(forecast)
+rw_drift = auto.arima(xt, max.q = 0, max.d = 1, allowdrift = T)
+summary(rw_drift)
+```
+The auto.arima function returns an ARIMA(0,1,0) model with a drift = -0.3837, which is roughly consistent with the model assumption.
+
+(c) Go through the testing procedure for units roots discussed in class. Indicate clearly the conclusion at each step of the procedure.
+```{r}
+library(urca)
+ur = ur.df(xt, lags = 0, type = "trend")
+summary(ur)
+```
+1) Pi_hat's test statistic is -3.1869, larger than the critical value -3.45, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_2_hat's test statistic is 5.124, smaller than the critical value 6.49, so we do NOT reject the hypothesis that beta_2 = 0 given pi = 0.
+
+```{r}
+ur2 = ur.df(xt, lags = 0, type = "drift")
+summary(ur2)
+```
+
+1) Pi_hat's test statistic is -0.1131, larger than the critical value -2.89, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_1_hat's test statistic is 8.9186, larger than the critical value 4.71, so we reject the hypothesis that beta_1 = 0 given pi = 0.
+
+3) Check with normal critical value: pi_hat's test statistic is -0.1131, larger than -1.65 at 5% significance level, so we conclude that pi = 0.
+
+The unit root test ends. We conclude that the model is a non-stationary AR model with a drift. 
+
+Problem 3
+
+(a) Produce a time plot of the series.
+```{r}
+data(Raotbl3)
+ts1 = ts(Raotbl3$lc)
+plot.ts(ts1)
+```
+(b) Go through the testing procedure for units roots discussed in class taking k = 3 for the number of lagged series differences to include in the regression. Indicate clearly the conclusion at each step of the procedure.
+```{r}
+ur_lc = ur.df(ts1, lags = 3, type = "trend")
+summary(ur_lc)
+```
+
+1) Pi_hat's test statistic is -2.2389, larger than the critical value -3.45, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_2_hat's test statistic is 2.5972, smaller than the critical value 6.49, so we do NOT reject the hypothesis that beta_2 = 0 given pi = 0.
+
+```{r}
+ur_lc2 = ur.df(ts1, lags = 3, type = "drift")
+summary(ur_lc2)
+```
+
+1) Pi_hat's test statistic is -0.0931, larger than the critical value -2.89, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_1_hat's test statistic is 2.8806, smaller than the critical value 4.71, so we do NOT reject the hypothesis that beta_1 = 0 given pi = 0.
+
+```{r}
+ur_lc3 = ur.df(ts1, lags = 3, type = "none")
+summary(ur_lc3)
+```
+
+1) Pi_hat's test statistic is 2.4089, larger than the critical value -1.95, so we do NOT reject the null hypothesis that pi = 0. 
+
+The unit test ends. We conclude that this is a non-stationary AR model without trend/drift.
+
+(c) Does the conclusion depend on the choice of k? Answer this by trying k = 2 and k = 4.
+
+For K = 2
+```{r}
+ur_lc_k2 = ur.df(ts1, lags = 2, type = "trend")
+summary(ur_lc_k2)
+```
+
+1) Pi_hat's test statistic is -1.6089, larger than the critical value -3.45, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_2_hat's test statistic is 1.3643, smaller than the critical value 6.49, so we do NOT reject the hypothesis that beta_2 = 0 given pi = 0.
+
+```{r}
+ur_lc_k22 = ur.df(ts1, lags = 2, type = "drift")
+summary(ur_lc_k22)
+```
+
+1) Pi_hat's test statistic is -0.0014, larger than the critical value -2.89, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_1_hat's test statistic is 6.4846, larger than the critical value 4.71, so we reject the hypothesis that beta_1 = 0 given pi = 0.
+
+3) Compare with normal critical value: pi_hat's test statistic is -0.0014, larger than the critical value -1.65, so we do NOT reject the null hypothesis that pi = 0. 
+
+The unit root test ends. We conclude that this is a non-stationary AR model with drift. 
+
+For K = 4
+```{r}
+ur_lc_k4 = ur.df(ts1, lags = 4, type = "trend")
+summary(ur_lc_k4)
+```
+
+1) Pi_hat's test statistic is -1.85, larger than the critical value -3.45, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_2_hat's test statistic is 1.9108, smaller than the critical value 6.49, so we do NOT reject the hypothesis that beta_2 = 0 given pi = 0.
+
+```{r}
+ur_lc_k42 = ur.df(ts1, lags = 4, type = "drift")
+summary(ur_lc_k42)
+```
+
+1) Pi_hat's test statistic is 0.1954, larger than the critical value -2.89, so we do NOT reject the null hypothesis that pi = 0. 
+
+2) Beta_1_hat's test statistic is 3.8987, smaller than the critical value 4.71, so we do NOT reject the hypothesis that beta_1 = 0 given pi = 0.
+
+```{r}
+ur_lc_k43 = ur.df(ts1, lags = 4, type = "none")
+summary(ur_lc_k43)
+```
+
+1) Pi_hat's test statistic is 2.8047, larger than the critical value -1.95, so we do NOT reject the null hypothesis that pi = 0. 
+
+The unit test ends. We conclude that this is a non-stationary AR model without trend/drift.
+
+As shown as above, the choice of K affects the conclusion of the unit tests. Both K = 3 and K = 4 arrives at a non-stationary AR model without trend/drift. But for K = 2, we arrive at a non-stationary AR model with a drift. 
+(d) Fit a quadratic trend to the time series through regression and consider its residuals. Treating the residuals series as stationary, fit the best (e.g. according to auto.arima) AR model.
+```{r}
+# The Quadratic Trend Model
+t = time(ts1)
+mod.quad = lm(ts1 ~ t + I(t^2))
+summary(mod.quad)
+```
+```{r}
+# Residuals
+resid = resid(mod.quad)
+mod.resid = auto.arima(resid, max.p = 5, max.q = 0, max.d = 0, allowdrift = F, allowmean = F)
+summary(mod.resid)
+```
+The best model is an AR(1) model with phi_1_hat = 0.9218.
+
+(e) What model, stationary AR or integrated (without any drift/trend), does the ADF unit root test suggest for the residual series from part (d)?
+```{r}
+ur_resid = ur.df(resid, lags=0, type = "none")
+summary(ur_resid)
+```
+The test statistic of pi_hat is -2.221, smaller than -1.95, so we reject the null hypothesis of pi = 0. 
+
+We conclude that the model is a stationary AR model.
+
