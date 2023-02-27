@@ -1,0 +1,23 @@
+---
+title: "Uchicago Economics"
+output: html_document
+date: "2023-02-26"
+---
+
+```{r}
+library(arrow)
+
+yellow_2021 = read_parquet("yellow_tripdata_2022-01.parquet")
+
+names(yellow_2021)
+```
+```{r}
+summary(yellow_2021$PULocationID)
+table(yellow_2021$PULocationID)
+
+yellow_2021$pul = as.factor(yellow_2021$PULocationID)
+yellow_2021$dol = as.factor(yellow_2021$DOLocationID)
+mod1 = lm(tip_amount ~ pul+dol, data = yellow_2021[yellow_2021$payment_type==1, ])
+summary(mod1)
+```
+
