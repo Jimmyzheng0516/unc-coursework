@@ -1,0 +1,197 @@
+---
+title: "ECON573 Problem Set 7 Question 2 By Jimmy Zheng"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: "2023-02-28"
+---
+Problem 2: ISL Chapter 6. Applied Exercise 8
+
+(a) Use the rnorm() function to generate a predictor X of length n = 100, as well as a noise vector 
+\episilon of length n = 100.
+```{r}
+set.seed(1)
+x = rnorm(100)
+e = rnorm(100)
+```
+
+(b) Generate a response vector Y of length n = 100 according to the model
+$$
+Y = β_0 + β_1X + β_2X^2 + β_3X^3 + \epsilon
+$$
+```{r}
+b0 = 1
+b1 = 2.5
+b2 = 1.5
+b3 = 2
+
+y = b0 + b1*x + b2*x^2 + b3*x^3 + e
+```
+(c) Use the regsubsets() function to perform best subset selection in order to choose the best model containing the predictors X, X^2,...,X^10. What is the best model obtained according to Cp, BIC, and adjusted R2? Show some plots to provide evidence for your answer, and report the coefficients of the best model obtained. Note you will need to use the data.frame() function to create a single data set containing both X and Y .
+```{r}
+library(leaps)
+data = data.frame(poly(x, 10, raw = T), y)
+full = regsubsets(y ~ poly(x, 10, raw = T), data = data, nvmax = 10)
+
+# Cp
+which.min(summary(full)$cp)
+coef(full, 4)
+
+# BIC
+which.min(summary(full)$bic)
+coef(full, 3)
+
+# adj R^2
+which.max(summary(full)$adjr2)
+coef(full, 4)
+
+# Plots
+par(mfrow=c(2,2))
+plot(summary(full)$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+points(4, summary(full)$cp[4], pch = 20, col = "red")
+plot(summary(full)$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+points(3, summary(full)$bic[3], pch = 20, col = "red")
+plot(summary(full)$adjr2, xlab = "Number of Variables", ylab = "Adjusted R^2", type = "l")
+points(4, summary(full)$adjr2[4], pch = 20, col = "red")
+```
+I choose the best model selected by BIC
+```{r}
+coef(full, 3)
+```
+
+
+(d) Repeat (c), using forward stepwise selection and also using backwards stepwise selection. How does your answer compare to the results in (c)?
+```{r}
+fwd = regsubsets(y ~ poly(x, 10, raw = T), data = data, nvmax = 10, method = "forward")
+bwd = regsubsets(y ~ poly(x, 10, raw = T), data = data, nvmax = 10, method = "backward")
+```
+
+Best Models from Forward Selections
+```{r}
+# Cp
+which.min(summary(fwd)$cp)
+coef(fwd, 4)
+
+# BIC
+which.min(summary(fwd)$bic)
+coef(fwd, 3)
+
+# adj R^2
+which.max(summary(fwd)$adjr2)
+coef(fwd, 4)
+
+# Plots
+par(mfrow=c(2,2))
+plot(summary(fwd)$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+points(4, summary(fwd)$cp[4], pch = 20, col = "red")
+plot(summary(fwd)$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+points(3, summary(fwd)$bic[3], pch = 20, col = "red")
+plot(summary(fwd)$adjr2, xlab = "Number of Variables", ylab = "Adjusted R^2", type = "l")
+points(4, summary(fwd)$adjr2[4], pch = 20, col = "red")
+```
+
+The best model selected by BIC.
+```{r}
+coef(fwd, 3)
+```
+
+Best Models from Backward Selections
+```{r}
+which.min(summary(bwd)$cp)
+coef(bwd, 7)
+
+# BIC
+which.min(summary(bwd)$bic)
+coef(bwd, 5)
+
+# adj R^2
+which.max(summary(bwd)$adjr2)
+coef(bwd, 7)
+
+# Plots
+par(mfrow=c(2,2))
+plot(summary(bwd)$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+points(7, summary(bwd)$cp[7], pch = 20, col = "red")
+plot(summary(bwd)$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+points(5, summary(bwd)$bic[5], pch = 20, col = "red")
+plot(summary(bwd)$adjr2, xlab = "Number of Variables", ylab = "Adjusted R^2", type = "l")
+points(7, summary(bwd)$adjr2[7], pch = 20, col = "red")
+```
+The best model selected by BIC
+```{r}
+coef(bwd, 5)
+```
+For this simulated series, we luckily arrive at the same best models by using both regsubset and forward selections based on Cp, BIC and Adjusted R^2. However, the models selected by backward selection are different from both of them. In this example, not only does backward selection include more varianbles, but also higher orders of X's, such as X^10, X^9, and X^8.
+
+(e) Now fit a lasso model to the simulated data, again using X, X^2,...,X^10 as predictors. Use cross-validation to select the optimal value of \lambda. Create plots of the cross-validation error as a function of \lambda. Report the resulting coefficient estimates, and discuss the results obtained.
+```{r}
+library(glmnet)
+x_mat = model.matrix(y~poly(x, 10, raw = T),data=data)[,-1]
+y = data$y
+grid = 10^seq(1, -2, length = 100)
+colnames(x_mat) = c("X", "X^2", "X^3", "X^4", "X^5", "X^6", "X^7", "X^8", "X^9", "X^10")
+
+set.seed(1)
+train = sample(1:nrow(x_mat), nrow(x_mat)/2)
+test = (-train)
+y.test = y[test]
+
+mod.lasso1 = glmnet(x_mat[train,], y[train], alpha = 1,  lambda = grid)
+cv.out = cv.glmnet(x_mat[train,], y[train], alpha = 1, lambda = grid)
+plot(cv.out)
+
+# best value of lambda
+bestlam = cv.out$lambda.min
+
+# report the coefficients
+out = glmnet(x_mat, y, alpha = 1, lambda = grid)
+lasso1.coef = predict(out, type = "coefficients", s = bestlam)[1:11,]
+lasso1.coef
+
+# non-zero coefficients
+lasso1.coef[lasso1.coef!=0]
+```
+The lasso method produce a relatively sparse model with only 6 out of 10 variables having non-zero estimated coefficients, which is close to the true model with order 3. The intercept and coefficients of X, X^2, and X^3 are similar to the true parameters b0, b1, .., b3. Although it produces non-zero coefficients for X^5 and X^7, their coefficients are approximately zero, which is consistent with the model simulated. 
+
+(f) Now generate a response vector Y according to the model
+$$
+Y = β_0 + β_7X^7 + \epsilon
+$$
+and perform best subset selection and the lasso. Discuss the results obtained.
+
+```{r}
+b0_new = 1
+b7_new = 2
+y_new = b0_new + b7_new*x^7 + e
+
+# Best Subset Selection
+data_new = data.frame(poly(x, 10, raw = T), y_new)
+full_new = regsubsets(y_new ~ ., data = data_new, nvmax = 10)
+coef(full_new, which.min(summary(full_new)$bic))
+
+# Lasso
+x_mat_new = model.matrix(y_new~poly(x, 10, raw = T),data=data_new)[,-1]
+y = data_new$y_new
+grid = 10^seq(2, -2, length = 100)
+colnames(x_mat_new) = c("X", "X^2", "X^3", "X^4", "X^5", "X^6", "X^7", "X^8", "X^9", "X^10")
+
+set.seed(1)
+train = sample(1:nrow(x_mat_new), nrow(x_mat_new)/2)
+
+mod.lasso2 = glmnet(x_mat_new[train,], y[train], alpha = 1,  lambda = grid)
+cv.out2 = cv.glmnet(x_mat_new[train,], y[train], alpha = 1, lambda = grid)
+plot(cv.out2)
+
+bestlam2 = cv.out2$lambda.min
+
+out2 = glmnet(x_mat_new, y, alpha = 1, lambda = grid)
+lasso1.coef2 = predict(out2, type = "coefficients", s = bestlam2)[1:11,]
+lasso1.coef2[lasso1.coef2!=0]
+```
+For this simulated model, the best model selected by regsubset based on BIC surprisingly outperforms the one estimated by the Lasso method. The model from regsubset includes X^7 only and has almost identical estimates of \beta_0 and \beta_7. However, the lasso method also performs pretty well. It produces nearly negligible coefficients for variables other than X^7, and the estimated coefficients for \beta_0 and \beta_7 are similar to the model assumption.
+
+
+
+
+
