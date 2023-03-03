@@ -1,0 +1,145 @@
+---
+title: "STOR556 Hw6"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+date: "2023-03-03"
+---
+Problem 1
+
+(a) Plot the model ACF
+```{r, warning=FALSE}
+library(forecast)
+ma_acf = ARMAacf(ma=c(0.7, rep(0, 10), -0.5, -0.7*0.5), lag.max = 30, pacf = F)
+plot(ma_acf, type = "h")
+```
+
+(b) Generate time series data of length 300
+```{r, warning=FALSE}
+library(astsa)
+
+set.seed(99)
+ma = sarima.sim(ma=0.7, sma=-0.5, S=12, n=300)
+
+par(mfrow=c(1,1))
+plot.ts(ma)
+
+par(mfrow=c(1, 2))
+par(mar = c(5.1, 4.1, 4.1, 2.1))
+acf(ma, lag.max = 30)
+pacf(ma, lag.max = 30)
+```
+
+(c) For the generated data, fit a SARIMA model
+
+
+
+```{r}
+sarima.mod = Arima(ma, 
+                   order = c(0, 0, 1), 
+                   seasonal = c(0, 0, 1),
+                   method = "ML",
+                   include.mean = F)
+sarima.mod
+```
+
+(d) Produce forecasts for the generated data for 12 steps ahead
+```{r}
+h = 12
+ma.forecast = forecast(sarima.mod, h)
+
+plot(ma.forecast)
+```
+
+Problem 2
+
+(a)
+```{r}
+ts0 = read.table('airpass.txt')
+airpass2 = ts0$V1[-(133:144)]
+airpass2log = log(airpass2)
+
+ts = ts(data=airpass2log, frequency = 12)
+
+n <- length(ts)
+tt <- seq(1,n)
+tt2 <- tt^2
+
+cos12 <- cos(2*pi*tt/12)
+sin12 <- sin(2*pi*tt/12)
+cos6 <- cos(2*pi*tt/6)
+sin6 <- sin(2*pi*tt/6)
+cos4 <- cos(2*pi*tt/4)
+sin4 <- sin(2*pi*tt/4)
+
+rg <- lm(ts ~ tt + tt2 + cos12 + sin12 + cos6 + sin6 + cos4 + sin4)
+summary(rg)
+
+# Fit a stationary SARIMA model on the residuals
+ts2 <- ts(residuals(rg), frequency=12)
+
+auto.ts2 <- auto.arima(ts2, max.p = 2, max.q = 2, max.d = 2,
+                          start.p = 0, start.q = 0, 
+                          max.P = 2, max.Q = 2, max.D = 2,
+                          start.P = 0, start.Q = 0, 
+                          stationary = TRUE, allowdrift = FALSE, ic = "aic")
+auto.ts2
+
+# Forecasts
+h = 12
+resid.forecast <- forecast(auto.ts2, h)
+
+t_h = (133:144)
+trend_seasonal.forecast = rg$coefficients[1]+rg$coefficients[2]*t_h+rg$coefficients[3]*t_h^2+rg$coefficients[4]*cos(2*pi*t_h/12)+rg$coefficients[5]*sin(2*pi*t_h/12)+rg$coefficients[6]*cos(2*pi*t_h/6)+rg$coefficients[7]*sin(2*pi*t_h/6)+rg$coefficients[8]*cos(2*pi*t_h/4)+rg$coefficients[9]*sin(2*pi*t_h/4)
+
+# Translate forecasts Back to the Original Time Series
+original_forecast = exp(trend_seasonal.forecast+resid.forecast$mean)
+
+plot.ts(ts0, xlim = c(1, 144), ylim = c(0, 650))
+lines(t_h, original_forecast, lty = 2, lwd = 2, col = "red")
+```
+
+(b)
+```{r}
+ts0 = read.table('airpass.txt')
+airpass2 = ts0$V1[-(133:144)]
+airpass2log = log(airpass2)
+
+ts = ts(data=airpass2log, frequency = 12)
+
+sarima_mod_ts = auto.arima(ts, max.p = 5, max.q = 5, max.d = 1,
+                          start.p = 0, start.q = 0, 
+                          max.P = 5, max.Q = 5, max.D = 12,
+                          start.P = 0, start.Q = 0, 
+                          allowdrift = FALSE, ic = "aic")
+sarima_mod_ts
+
+h = 12
+t_h = (133:144)
+
+sarima_mod_ts.forecast = exp(forecast(sarima_mod_ts, h)$mean)
+
+plot.ts(ts0, xlim = c(1, 144), ylim = c(0, 650))
+lines(t_h, sarima_mod_ts.forecast, lty = 2, lwd = 2, col = "blue")
+```
+
+(c)
+
+The approach in part (a) gives smaller errors.
+
+```{r}
+# part (a) model
+sum((original_forecast - ts0$V1[133:144])^2)
+
+# part (b) model
+sum((sarima_mod_ts.forecast - ts0$V1[133:144])^2)
+```
+
+
+
+
+
+
+
+
