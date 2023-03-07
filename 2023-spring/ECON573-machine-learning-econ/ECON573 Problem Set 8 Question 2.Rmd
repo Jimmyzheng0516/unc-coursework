@@ -1,0 +1,18 @@
+---
+title: "Untitled"
+output:
+  word_document: default
+  html_document: default
+date: "2023-03-07"
+---
+```{r}
+X=seq(-2, 2, by=0.0001)
+Y = 1 + X - 2*(X-1)^2*I(X>=1)
+
+plot(X,Y, type = "l")
+grid()
+abline(h=0, lty = 2)
+abline(v=0, lty = 2)
+abline(v=1, lty = 2)
+```
+

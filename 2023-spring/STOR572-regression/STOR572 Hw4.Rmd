@@ -1,0 +1,47 @@
+---
+title: "STOR572 Assignment 4 By Jimmy Zheng"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: "2023-03-04"
+---
+```{r}
+library(readr)
+
+raw = read_csv("total_WIP.csv", show_col_types = FALSE)
+
+# Data Organizing
+index = which(raw$time < 0)
+
+df = data.frame(matrix(, nrow = 1500, ncol = 40))
+df[1:c(index[1]-1), 1:2] = raw[1:c(index[1]-1),]
+
+for (i in 2:20){
+  df[1:c(c(index[i]-1)-c(index[i-1]+1)+1),(2*i-1):(2*i)] = raw[c(index[i-1]+1):c(index[i]-1),1:2]
+}
+
+df2 = na.omit(df[,c(13, seq(2, by=2, 20))])
+
+df_welch = as.data.frame(matrix(as.numeric(unlist(df2[, 2:11])), byrow = T, nrow = 1073))
+
+# Compute the averages across 20 replications
+df_welch$x_bar = rowMeans(df_welch)
+
+# Choosing an appropriate window size to compute the moving averages
+library(itsmr)
+
+w = 150 # the window size
+
+ts = smooth.ma(df_welch$x_bar, w) # moving averages 
+plot.ts(ts, xlab = "Row Number")
+```
+I choose row 500 to be the truncation level, which corresponds to 1017.333 minutes. For simplicity, lets set the warm-up period to be 1000 minutes.
+```{r}
+df2$X13[500]
+```
+
+
+
+
+
