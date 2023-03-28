@@ -1,0 +1,131 @@
+---
+title: "STOR572 Assignment 5"
+author: "Jimmy Zheng"
+date: "2023-03-27"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+### (a) Provide the method this random generator uses. Is this one of the generators we discussed in class? What are its parameters?
+
+R uses the Mersenne Twister algorithm, which is based on the linear recurrence modulo 2 approach we discussed in class. Parameters include word size, degree of recurrence, middle word, separation point of one word, coefficients of the rational normal form twist matrix, TGFSR(R) tempering bitmasks, TGFSR(R) tempering bit shifts, and additional Mersenne Twister tempering bit shifts/masks
+
+### (b) Generate a sequence of 1,000 random numbers from this generator. Plot (U_i, U_i+1) tuples for this sample and discuss if you see any patterns?
+
+From the below scatterplot, there is NOT any discernible relationship between U_i and U_(i+1), so it is likely that U_i's are independent.
+```{r}
+set.seed(2)
+u = runif(1000, 0, 1)
+
+plot(u[1:999], u[2:1000], xlab = "U_i", ylab = "U_(i+1)")
+```
+
+### (c) Apply the Chi-Square test to the sample you generated in part (b). Discuss how you choose the test parameters and your conclusion.
+
+I choose k = 200 since it satisfies k >= 100 and n/k >= 5.
+
+H0: U_1, U_2,..., U_n are i.i.d uniformly distributed from 0 to 1
+
+Since the test statistic 162.4 < 232.9118 (the critical value), we fail to reject the null hypothesis and conclude that U_1, U_2,..., U_n are i.i.d uniformly distributed from 0 to 1.
+```{r}
+k <- 200 # number of sub intervals
+interval_breaks <- seq(0, 1, length.out = k + 1) # defining the cut points of the subintervals
+sub_intervals <- cut(u, breaks = interval_breaks)
+
+# Calculate N_j in each subinterval and np_j
+N_j <- table(sub_intervals)
+
+np_j <- rep(1000/k, k)
+
+# Calculate the chi-square statistic
+X_2 <- sum((N_j - np_j)^2 / np_j)
+
+# Compare the test statistic with the Critical Value 
+X_2
+qchisq(0.95, df=k-1)
+```
+
+### (d) Apply the Serial test for 2 and 3 dimensions to the sample you generated in part (b).Discuss how you choose the test parameters and your conclusion.
+
+Given n=1000, we have to choose k such that 1000/k^2 >= 5 and 1000/k^3 >= 5. For d=2, the k <= 10sqr(2), let's choose k = 14. For d=3, k <= 2*25^(1/3), let's choose k = 5. 
+
+For d=2, the test statistic is 175.844 < 228.5799 (the critical value), we fail to reject the null hypothesis and conclude that U_1, U_2,..., U_nd are i.i.d uniformly distributed from 0 to 1.
+
+For d=3, the test statistic is 136.25 < 150.9894 (the critical value), we fail to reject the null hypothesis and conclude that U_1, U_2,..., U_n3 are i.i.d uniformly distributed from 0 to 1.
+
+```{r}
+# 2D serial test
+k = 14
+
+interval_breaks <- seq(0, 1, length.out = k + 1)
+sub_intervals = data.frame(
+  x = cut(u[-length(u)], breaks = interval_breaks),
+  y = cut(u[-1], breaks = interval_breaks)
+)
+
+N_j_2D = table(sub_intervals)
+
+np_2D <- length(u) / (k^2)
+X_2_2D <- sum((as.vector(N_j_2D) - np_2D)^2 / np_2D) # chi-square statistic
+
+X_2_2D
+qchisq(0.95, df = k^2 - 1)
+
+# 3D serial test
+k = 5
+
+interval_breaks <- seq(0, 1, length.out = k + 1)
+sub_intervals = data.frame(
+  x = cut(u[1:(length(u) - 2)], breaks = interval_breaks),
+  y = cut(u[2:(length(u) - 1)], breaks = interval_breaks),
+  z = cut(u[3:length(u)], breaks = interval_breaks)
+)
+
+N_j_3D = table(sub_intervals)
+
+np_3D <- length(u) / (k^3)
+X_2_3D <- sum((as.vector(N_j_3D) - np_3D)^2 / np_3D) # chi-square statistic
+
+X_2_3D
+qchisq(0.95, df = k^3 - 1)
+```
+
+### (e) Apply the correlation test for lags 1 and 2 to the sample you generated in part (b).
+
+H0: rho_1 = 0 
+
+The absolute value of the z-statistic is 0.3433185 < 1.959964, we fail to reject the null hypothesis that rho_1 = 0.
+
+H0: rho_2 = 0 
+
+The absolute value of the z-statistic is 1.383409 < 1.959964, we fail to reject the null hypothesis that rho_2 = 0.
+```{r}
+# lag 1
+h1 = floor((1000-1)/1 -1)
+
+rho_1 = 12/(h1+1)*sum(u[seq(from = 1, to = length(u)-1, by = 1)]*u[
+  seq(from = 2, to = length(u), by = 1)])-3
+var_1 = (13*h1+7)/((h1+1)^2)
+
+z1 = rho_1/sqrt(var_1) # z-statistic
+
+abs(z1)
+qnorm(0.975, mean=0, sd=1) 
+
+# lag 2 
+h2 = floor((1000-1)/2 -1)
+
+rho_2 = 12/(h2+1)*sum(u[seq(from = 1, to = length(u)-2, by = 2)]*u[
+  seq(from = 3,to = length(u), by = 2)])-3
+var_2 = (13*h2+7)/((h2+1)^2)
+
+z2 = rho_2/sqrt(var_2) # z-statistic
+
+abs(z2)
+qnorm(0.975, mean=0, sd=1)
+```
+
+
+
+

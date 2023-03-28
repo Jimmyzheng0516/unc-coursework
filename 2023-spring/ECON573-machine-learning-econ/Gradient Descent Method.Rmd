@@ -1,0 +1,49 @@
+---
+title: "Gradient Descent Method"
+author: "Jimmy Zheng"
+date: "2023-03-28"
+output: html_document
+---
+```{r}
+# Load required libraries
+library(ggplot2)
+
+# Define a loss function (example: quadratic loss)
+loss_function <- function(x) (x - 2)^2
+
+# Define the gradient of the loss function
+loss_gradient <- function(x) 2 * (x - 2)
+
+# Initial model value
+F_m1 <- 0
+
+# Learning rate
+nu <- 0.5
+
+# Update the model
+F_m <- F_m1 - nu * loss_gradient(F_m1)
+
+# Create data for plotting the loss function
+x_vals <- seq(-2, 4, 0.1)
+y_vals <- loss_function(x_vals)
+
+# Create data for plotting the tangent line
+tangent_x <- seq(F_m1 - 1, F_m1 + 1, 0.1)
+tangent_y <- loss_function(F_m1) + loss_gradient(F_m1) * (tangent_x - F_m1)
+
+# Create the plot
+ggplot() +
+  geom_line(aes(x = x_vals, y = y_vals, color = "Loss Function")) +
+  geom_line(aes(x = tangent_x, y = tangent_y, color = "Tangent Line")) +
+  geom_segment(aes(x = 0, y = 0, xend = F_m1, yend = loss_function(F_m1), color = "Initial Model Vector"), linetype = "dashed") +
+  geom_segment(aes(x = 0, y = 0, xend = F_m, yend = loss_function(F_m), color = "Updated Model Vector"), linetype = "dashed") +
+  geom_segment(aes(x = F_m1, y = loss_function(F_m1), xend = F_m, yend = loss_function(F_m), color = "Negative Gradient Vector"), linetype = "dashed", arrow = arrow(length = unit(0.3, "cm"))) +
+  geom_point(aes(x = F_m1, y = loss_function(F_m1), color = "Initial Model"), size = 4) +
+  geom_point(aes(x = F_m, y = loss_function(F_m), color = "Updated Model"), size = 4) +
+  labs(x = "F(x)", y = "L(y, F(x))") +
+  scale_color_manual(values = c("Loss Function" = "blue", "Tangent Line" = "red", "Initial Model Vector" = "darkgreen", "Updated Model Vector" = "black", "Negative Gradient Vector" = "orange", "Initial Model" = "green", "Updated Model" = "purple")) +
+  theme_minimal() +
+  ggtitle("Negative Gradient Vector on the Loss Function Plot") +
+  theme(legend.title = element_blank())
+```
+
