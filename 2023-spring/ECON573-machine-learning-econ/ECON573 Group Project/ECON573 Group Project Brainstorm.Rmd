@@ -1,0 +1,52 @@
+---
+title: "ECON573 Project First Draft"
+author: "Jimmy Zheng"
+date: "2023-03-28"
+output: html_document
+---
+
+```{r, warning=FALSE}
+library(readr)
+library(dplyr)
+library(data.table)
+
+UBPR_2011_dollar = as.data.frame(read_csv("UBPR Balance Sheet dollar 2011.csv", show_col_types = F))
+call_2011_1 = as.data.frame(read_csv("Call Report 2011(1 of 3).csv", show_col_types = F))
+call_2011_2 = as.data.frame(read_csv("Call Report 2011(2 of 3).csv", show_col_types = F))
+call_2011_3 = as.data.frame(read_csv("Call Report 2011(3 of 3).csv", show_col_types = F))
+
+# Additional Datasets if needed
+UBPR_2011_percent = as.data.frame(read_csv("UBPR Balance Sheet percent 2011.csv", show_col_types = F))
+
+# Make sure we have consistent column names
+colnames(UBPR_2011_dollar)[2] = "IDRSSD"
+colnames(UBPR_2011_percent)[2] = "IDRSSD"
+
+# Merge the datasets by the "IDRSSD" column
+data1_dt <- as.data.table(UBPR_2011_dollar)
+data2_dt <- as.data.table(call_2011_1)
+data3_dt <- as.data.table(call_2011_2)
+data4_dt <- as.data.table(call_2011_3)
+
+merged_data_2011 <- data1_dt[data2_dt, on = "IDRSSD", allow.cartesian = TRUE
+                        ][data3_dt, on = "IDRSSD", allow.cartesian = TRUE
+                          ][data4_dt, on = "IDRSSD", allow.cartesian = TRUE]
+
+
+# Extract the variables we want
+column_names <- c("IDRSSD", "UBPR1410", "UBPRE116", "UBPRD665", "UBPR1590", "UBPRE117","UBPR3123",
+                  "UBPR2123", "UBPRE119", "UBPRE118", "UBPR5369", "UBPRB528", "RCON2210",
+                  "RCON6810", "RCON0352", "UBPRK426", "UBPR2366", "UBPRK434", "UBPRK437",
+                  "UBPRD078", "UBPR2200", "UBPR2365", "UBPRE120", "UBPR8636", "UBPRD657",
+                  "UBPRE121", "UBPR1754", "UBPRD662", "UBPRE122", "UBPRE123", "UBPR2170",
+                  "UBPRG105", "UBPR3300")
+
+# Index the specified columns
+selected_columns <- merged_data_2011 %>% select(any_of(column_names))
+
+# Non-existent variables
+setdiff(column_names, colnames(selected_columns))
+```
+
+
+

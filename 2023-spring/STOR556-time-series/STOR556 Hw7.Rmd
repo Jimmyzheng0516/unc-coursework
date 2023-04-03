@@ -1,0 +1,215 @@
+---
+title: "STOR556 Hw7"
+author: "Jimmy Zheng"
+date: "2023-04-02"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+## Problem 1
+
+### (a) Verify numerically for the time series x and e.g. $k = 20$ that $a_k, b_k$ in Eq.(1) above are also the coefficients in the linear regression of of $x_t$ on $1$, $\cos(\frac{2\pi kt}{T})$ and $\sin(\frac{2\pi kt}{T})$.
+
+```{r}
+# Generate x_t
+set.seed(1)
+phi1 = 2*(1/1.2)*cos(pi/8)
+phi2 = -1/1.22
+x = arima.sim(list(order = c(2,0,0), ar = c(phi1,phi2) ), n = 200)
+
+# Regression on cos() and sin()
+t = time(x)
+hr_1 = lm(x~1+cos(2*pi*20/200*t)+sin(2*pi*20/200*t))
+
+# Verify the equation for k=20
+a_0 = mean(x)
+a_20 = 2/200*sum(x*cos(2*pi*20/200*t))
+b_20 = 2/200*sum(x*sin(2*pi*20/200*t))
+
+rbind(equation=c(a_0, a_20, b_20), coef = summary(hr_1)$coef[,1])
+```
+
+From the above calculations, Equation (2) and the harmonic regression produce the same values of $a_0$, $a_{20}$, $b_{20}$ when $k=20$.
+
+### (b) Verify numerically for the time series x that Equation (3) and (4) are equivalent.
+
+```{r}
+# Generate a_k and b_k
+a = rep(0, 99)
+b = rep(0, 99)
+for(i in 1:99){
+a[i] = 2/200*sum(x*cos(2*pi*i/200*t))
+b[i] = 2/200*sum(x*sin(2*pi*i/200*t))
+}
+
+a_100 = mean(x*cos(pi*t))
+
+# Verify equations
+rbind(Equation_3 = c(LHS = mean(x^2), RHS = a_0^2+0.5*sum(a^2+b^2)+a_100^2), 
+      Equation_4 = c(LHS = mean((x-mean(x))^2), RHS = 0.5*sum(a^2+b^2)+a_100^2))
+```
+
+### (c) Verify numerically for the time series x that the equation for the raw spectrum $\mathrm{I}(w_k)$ holds.
+
+```{r}
+# The raw spectrum
+spec.x = spec.pgram(x,log='no',taper=0,pad=0,fast=FALSE,demean=TRUE,detrend=FALSE)
+I_wk = spec.x$spec
+
+# Verify the equation
+c(LHS = mean((x-mean(x))^2), RHS = 2/200*sum(I_wk[1:99])+1/200*I_wk[100])
+```
+
+### (d) For the time series x, what is $k = k^*$ for which $\mathrm{I}(w_k)$ is largest? Produce the periodogram and add the vertical line at the corresponding frequency $w_k^*$.
+
+```{r}
+# The k for which I(wk) is largest
+k_max = which.max(I_wk)
+k_max
+
+# Add the vertical line
+spec.pgram(x,log='no',taper=0,pad=0,fast=FALSE,demean=TRUE,detrend=FALSE)
+abline(v=spec.x$freq[15], lty = 2, lwd = 2, col = "red")
+legend(0.1, 60, legend = c("w_15 = 0.075"), col = c("red"), box.lty=0)
+```
+
+### (e) Plot the time series x. Since the spectrum is largest at the frequency $w_k^*$, the cosine/sine component in Eq.(5) should explain a lot of variability in x. What percentage of the variability in x it explains according to Eq.(4)?
+
+```{r}
+# Plot the time series x with the equation
+plot.ts(x)
+curve(a_0+a[15]*cos(2*pi*15/200*x)+b[15]*sin(2*pi*20/200*x), add = T, col = "red")
+
+# Percentage of Var(x) explained
+0.5*(a[15]^2 + b[15]^2)/mean((x-mean(x))^2)
+```
+
+Around 22.4% of the variability in x is explained by $w_{15}$ according to Eq.(4).
+
+## Problem 2
+
+### (i) Produce a time plot of the series, its raw periodogram and its smoothed periodogram using the option spans=12.
+
+```{r}
+library(readr)
+wave <- read_csv("wave.txt", show_col_types = F)
+colnames(wave) = c("height")
+
+# Produce the plots
+plot.ts(wave)
+par(mfrow = c(1, 2))
+rawspec.wave = spec.pgram(wave,log='no',taper=0,pad=0,
+                          fast=FALSE,demean=TRUE,detrend=FALSE)
+smoothspec.wave = spec.pgram(wave,spans=12,log='no',taper=0,pad=0,
+                             fast=FALSE,demean=TRUE,detrend=FALSE)
+```
+
+### (ii) The periodogram should have its largest peak around the “frequency” value of 0.15. What period in seconds does this frequency value correspond to?
+
+The sample size is $T=395$. In R, $w_k =k/395=0.15\implies k=59.25$. The data is collected over 39.6 seconds, so $k=59.25$ corresponds to $59.25/39.6$ Hz, which is equal to $39.6/59.25 = 0.668$ seconds per cycle. The period is 0.668 seconds. 
+
+### (iii) Choose a and b so that the Pierson-Moskowitz spectrum matches roughly the spectrum of the series from part (i). Overlay the fitted Pierson-Moskowitz spectrum curve to the original spectrum of the series from part (i). 
+
+We want to find $a$ and $b$ such that the following equation is satisfied:
+$$
+\mathrm{I}(w_k)=aw^{-5}e^{-bw^{-4}}
+$$
+Take natural log on both sides of the equation:
+$$
+\ln(\mathrm{I}(w_k))=\ln(aw^{-5}e^{-bw^{-4}})=\ln(a)-5\ln(w)-bw^{-4}
+$$
+Therefore, we can regress $\ln(\mathrm{I}(w_k))$ on $\ln(w)$ and $w^{-4}$ to estimate $a$ and $b$.
+
+```{r}
+w = 2*pi*rawspec.wave$freq
+mod1 = lm(log(rawspec.wave$spec)~log(w)+I(w^(-4)))
+
+# Adjust the value of a and b so that the curve matches the periodogram
+a = 0.004*exp(summary(mod1)$coef[1, 1])
+b = -1000*summary(mod1)$coef[3, 1]
+
+spec.pgram(wave,log='no',taper=0,pad=0,fast=FALSE,demean=TRUE,detrend=FALSE)
+curve(a*x^(-5)*exp(-b*(x^(-4))), add = T, col = "red", xlim = c(0, pi))
+```
+
+## Problem 3
+
+### Consider the Butterworth filter with n=5,low=0.1,high=0.5. Plot the function $h(w)$ over the interval $w\in(0, \pi)$. Add the vertical lines to the plot, explain in your own words why this filter is called band-pass.
+
+```{r, warning=FALSE}
+library(signal)
+bf = butter(5,c(0.1,0.5))
+
+a = bf$a
+b = bf$b
+
+# The h(w) function
+h <- function(x, a, b) {
+  top <- 0
+  bottom <- 0
+  for (k in 1:10) {
+    top <- top + b[k+1] * exp(-1i*k*x)
+    bottom <- bottom + a[k+1] * exp(-1i*k*x)
+  }
+  top <- abs(b[1] + top)^2
+  bottom <- abs(a[1] + bottom)^2
+  return(top / bottom)
+}
+
+# Graph the h(w)
+curve(h(x, a, b), 0, pi)
+abline(v=0.1*pi, lty = 2, lwd = 2, col = "red")
+abline(v=0.5*pi, lty = 2, lwd = 2, col = "red")
+```
+
+The Butterworth filter is a band-pass filter because it allows a particular frequency range to pass through while suppressing all other frequencies. In the graph above, only frequencies within the range (approximately) (0.5, 1.5) are retained as their corresponding $h(w)$ is 1, and any frequencies outside the band are attenuated, with monotonically decreasing values of $h(w)$.
+
+## Problem 4
+
+### (i) Using set.seed(1) and the function arima.sim, generate AR(1) time series of length 200 and parameters $\phi = 0.5$ (and $\sigma^2_Z = 1$). Plot the time series.
+
+```{r}
+xt = arima.sim(list(order = c(1,0,0), ar = 0.5), n = 200)
+plot.ts(xt)
+```
+
+### (ii) Plot the above function $L(\phi)$ and the periodogram computed for the series generated in part (i).
+
+```{r}
+# Spectral density function
+f = function(phi, w){
+  1/(2*pi)*(abs(1-phi*exp(-1i*w))^(-2))
+}
+
+# Plot the periodogram
+spec.xt = spec.pgram(xt,log='no',taper=0,pad=0,fast=FALSE,demean=TRUE,detrend=FALSE)
+
+I_wj = spec.xt$spec
+
+# The function L(phi)
+L = function(phi){
+  w = 2*pi*spec.xt$freq
+  sum = 0
+  for(j in 1:100){
+    sum = sum + log(f(phi, w[j])) + I_wj[j]/(2*pi*f(phi, w[j]))
+    }
+  return(sum)
+}
+
+curve(L(x), -1, 1)
+```
+
+### (iii) For what value of $\phi$, does the function $L(\phi)$ take its minimum? You can find this over a fine grid or using some optimization function. Note that the value of $\phi$ at the minimum is expected to be close to the true value $\phi=0.5$.
+
+```{r}
+grid = seq(-1, 1, 0.0001)
+df = as.data.frame(cbind(phi = grid, L_phi = L(grid)))
+
+# The value of phi that minimizes L(phi)
+df$phi[which.min(df$L_phi)]
+```
+
+$\hat\phi=0.5157$ minimizes $L(\phi)$, which is close to its true value $\phi=0.5$ in the model. 
+
+
