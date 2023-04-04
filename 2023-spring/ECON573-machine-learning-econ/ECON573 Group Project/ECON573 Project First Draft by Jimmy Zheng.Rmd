@@ -1,0 +1,235 @@
+---
+title: "ECON573 Project First Draft"
+author: "Team Bank Deposits"
+date: "2023-04-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+## Introduction
+
+Our project focuses on analyzing the impact of interest rates on banks' deposit compositions and loan portfolios. In this first draft, we have compiled panel data of over one million banks' deposit compositions, which were measured quarterly from December 1992 to June 2022, comprising approximately 5,000 banks per quarter. This data was obtained from the Call Report data provided by the Federal Financial Institutions Examination Council (FFIEC). The variables included in our dataset encompass various deposit types, contemporary federal funds rates and historical four-quarter federal funds rates, bank classification types (such as commercial, savings, etc.), bank specialization groups (including consumer, mortgage, agricultural, etc.), bank regions (northeast, southwest, etc.), stock versus non-stock (raising capital through selling stock), trust power granted, and the number of insured branches. All variables have been converted to real terms adjusted for inflation.
+
+In the current phase, we have focused on obtaining a comprehensive understanding of the deposit dataset and exploring classification techniques for analyzing the impact of interest rates on banks' deposit compositions and loan portfolios. The data organization and cleaning process for the loan portfolio will be completed later. This initial draft aims to establish a solid foundation for our analysis and to set the stage for further investigation into the complex relationships between interest rates, deposit compositions, and loan portfolios.
+
+## Data Cleaning
+
+The code for this section is skipped
+
+## Import The Deposit Dataset
+
+```{r, warning=FALSE}
+library(readr)
+library(dplyr)
+library(purrr)
+library(plm)
+library (MASS)
+library(e1071)
+
+deposit_data = read_csv("df_panel_lag_final.csv", show_col_types = F)
+
+# Calculate proportions
+deposit_data[, 27:40] = deposit_data[, 27:40]/as.numeric(deposit_data$Total_Deposits)
+```
+
+## Basic Summary Statistics
+
+Group the dataset by bank classification types and calculate the mean and standard deviation of total deposits and different types of deposits under different classification type.
+
+We have the following bank classification types:
+1.  N = commercial bank, national (federal) charter and fed member, supervised by the office of the comptroller of the currency (occ) 
+2. SM = commercial or savings bank, state charter and fed member, supervised by the federal reserve (FRB) 
+3. NM = commercial bank, state charter and fed nonmember, supervised by the FDIC or OCC 
+4. SB = savings banks, state charter, supervised by the FDIC 
+5. SA = As of July 21, 2011, FDIC supervised state chartered thrifts and OCC supervised federally chartered thrifts. Prior to that date, state or federally chartered savings associations supervised by the Office of Thrift Supervision (OTS). 
+6. OI = Insured U.S. branch of a foreign chartered institution (IBA)
+```{r, warning=FALSE}
+bkclass_summary <- deposit_data %>%
+  group_by(bkclass) %>%
+  summarise(
+    count = n(),
+    across(contains("Deposits"), list(mean = ~mean(., na.rm = TRUE), sd = ~sd(., na.rm = TRUE)), .names = "{col}_{fn}")
+  )
+
+head(bkclass_summary)
+```
+
+Group the dataset by bank specialization groups and calculate the mean and standard deviation of total deposits and different types of deposits under different groups.
+
+We have the following groups: 
+    1. International Specialization Institutions with assets greater than $10 billion and more than 25 percent of total assets in foreign offices. 
+    2. Agricultural Specialization Banks with agricultural production loans plus real estate loans secured by farmland in excess of 25 percent of total loans and leases.
+    3. Credit-card Specialization Institutions with credit-card loans plus securitized receivables in excess of 50 percent of total assets plus securitized receivables.
+    4. Commercial Lending Specialization Institutions with commercial and industrial loans, plus real estate construction and development loans, plus loans secured by commercial real estate properties in excess of 25 percent of total assets. 
+    5. Mortgage Lending Specialization Institutions with residential mortgage loans, plus mortgage-backed securities, in excess of 50 percent of total assets. 
+    6. Consumer Lending Specialization Institutions with residential mortgage loans, plus credit-card loans, plus other loans to Individuals, in excess of 50 percent of total assets. 
+    7. Other Specialized $1 Billion Institutions with assets greater than $1 billion that do not meet any of the definitions above, they have significant lending activity with no identified asset concentrations.
+    
+```{r, warning=FALSE}
+specgrp_summary <- deposit_data %>%
+  group_by(specgrp) %>%
+  summarise(
+    count = n(),
+    across(contains("Deposits"), list(mean = ~mean(., na.rm = TRUE), sd = ~sd(., na.rm = TRUE)), .names = "{col}_{fn}")
+  )
+head(specgrp_summary)
+```
+
+Group the dataset by stock versus non-stock (raising capital through selling stock) and calculate the mean and standard deviation of total deposits and different types of deposits under different groups.
+
+1 = Stock
+0 = Non-stock
+
+```{r, warning=FALSE}
+mutual_summary <- deposit_data %>%
+  group_by(mutual) %>%
+  summarise(
+    count = n(),
+    across(contains("Deposits"), list(mean = ~mean(., na.rm = TRUE), sd = ~sd(., na.rm = TRUE)), .names = "{col}_{fn}")
+  )
+
+head(mutual_summary)
+```
+
+Group the dataset by banks' location (state) and calculate the mean and standard deviation of total deposits and different types of deposits under different groups.
+```{r, warning=FALSE}
+stalp_summary <- deposit_data %>%
+  group_by(stalp) %>%
+  summarise(
+    count = n(),
+    across(contains("Deposits"), list(mean = ~mean(., na.rm = TRUE), sd = ~sd(., na.rm = TRUE)), .names = "{col}_{fn}")
+  )
+
+# Display the summary statistics
+head(stalp_summary)
+```
+
+## Generate Categorical Variables
+
+The dataset contains the proportion of each deposit type, which are not categorical variables. However, classification techniques require that the response variable has to be categorical. Therefore, we create several categorical variables that we are interested in:
+
+1. Is the proportion of demand deposits (proxy for volatile funding source) higher than saving deposits (proxy for predictable funding source)?
+```{r}
+demand_vs_saving = as.factor((deposit_data$Demand_Deposits>=deposit_data$Saving_Deposits)*1)
+```
+
+2. Is the proportion of time deposits (proxy for stable and expensive funding source) higher than non-time deposits (proxy for volatile and cheap funding source)?
+```{r}
+time_vs_nontime = as.factor((deposit_data$Time_Deposits>=0.5)*1)
+```
+
+3. Is the proportion of interest-bearing deposits (proxy for expensive funding source) higher than non-interest-bearing deposits (proxy for cheap funding source)?
+```{r}
+intb_vs_nonintb = as.factor((deposit_data$Interest_Bearing_Deposits>=deposit_data$`Non-interest_Bearing_Deposits`)*1)
+```
+
+4. Is the proportion of retail deposits (usually in small denomination) higher than brokered deposits (usually in large denomination)?
+```{r}
+retail_vs_brokered = as.factor((deposit_data$Retail_Deposits>=deposit_data$Brokered_Deposits)*1)
+```
+
+5. Is the proportion of insured deposits (secured creditors) higher than non-insured deposits (unsecured creditors)?
+```{r}
+insured_vs_notinsured = as.factor((deposit_data$Estimated_Insured_Deposits>=0.5)*1)
+```
+
+Then we combine the original dataset with these new categorical variables.
+```{r}
+deposit_data_new = cbind(deposit_data, demand_vs_saving, time_vs_nontime, intb_vs_nonintb, retail_vs_brokered, insured_vs_notinsured)
+
+deposit_data_new_pdata = pdata.frame(deposit_data_new, index = c("cert"))
+rownames(deposit_data_new_pdata) = 1:nrow(deposit_data_new_pdata)
+```
+
+## Validation Set
+```{r, warning=FALSE}
+set.seed(1)
+train <- sample(c(TRUE, FALSE), nrow(deposit_data_new_pdata), rep = TRUE)
+test <- (!train)
+
+training_sample <- deposit_data_new_pdata[train,]
+testing_sample <- deposit_data_new_pdata[test,]
+```
+
+## Classification
+
+In this section we take "time deposits vs non-time deposit" as an example to examine the performance of logistic regression, QDA, and Naive Bayes.
+
+### Logistic Regression
+
+```{r}
+logit_time_vs_nontime = glm(time_vs_nontime~ffr_0+ffr_1+ffr_2+ffr_3+ffr_4
+                             +as.factor(time), 
+                             family = "binomial",
+                             data = training_sample[!is.na(training_sample$time_vs_nontime) & 
+                                          !is.nan(training_sample$time_vs_nontime) & 
+                                          !is.infinite(training_sample$time_vs_nontime), ])
+
+# Make predictions on the testing sample
+predicted_probabilities <- predict(logit_time_vs_nontime, newdata = testing_sample, type = "response")
+
+# Convert probabilities to binary predictions using a threshold of 0.5
+predicted_classes <- ifelse(predicted_probabilities > 0.5, 1, 0)
+
+# Create a confusion matrix
+confusion_matrix <- table(Predicted = predicted_classes, Actual = testing_sample$time_vs_nontime)
+
+# Display the confusion matrix
+print(confusion_matrix)
+
+# Calculate the error rate
+total_cases <- sum(confusion_matrix)  # Total number of cases
+correct_cases <- sum(diag(confusion_matrix))  # Correctly classified cases
+error_rate <- 1 - (correct_cases / total_cases)
+cat("Error rate:", error_rate, "\n")
+```
+### QDA
+
+```{r}
+qda_time_vs_nontime = qda(time_vs_nontime~ffr_0+ffr_1+ffr_2+ffr_3+ffr_4
+                             +as.factor(time), 
+                             data = training_sample[!is.na(training_sample$time_vs_nontime) & 
+                                          !is.nan(training_sample$time_vs_nontime) & 
+                                          !is.infinite(training_sample$time_vs_nontime), ])
+
+# Predictions
+qda.pred <- predict(qda_time_vs_nontime, testing_sample) 
+
+# Confusion Matrix
+qda.class <- qda.pred$class
+confusion_matrix = table(qda.class, testing_sample$time_vs_nontime)
+
+# Display the confusion matrix
+print(confusion_matrix)
+
+# Calculate the error rate
+total_cases <- sum(confusion_matrix)  # Total number of cases
+correct_cases <- sum(diag(confusion_matrix))  # Correctly classified cases
+error_rate <- 1 - (correct_cases / total_cases)
+cat("Error rate:", error_rate, "\n")
+```
+### Naive Bayes
+
+```{r}
+nb_time_vs_nontime = naiveBayes(time_vs_nontime~ffr_0+ffr_1+ffr_2+ffr_3+ffr_4
+                             +as.factor(time), 
+                             data = training_sample[!is.na(training_sample$time_vs_nontime) & 
+                                          !is.nan(training_sample$time_vs_nontime) & 
+                                          !is.infinite(training_sample$time_vs_nontime), ])
+
+# Predictions
+nb.class <- predict(nb_time_vs_nontime, testing_sample) 
+
+# Confusion Matrix
+confusion_matrix = table(nb.class, testing_sample$time_vs_nontime)
+
+# Display the confusion matrix
+print(confusion_matrix)
+
+# Calculate the error rate
+total_cases <- sum(confusion_matrix)  # Total number of cases
+correct_cases <- sum(diag(confusion_matrix))  # Correctly classified cases
+error_rate <- 1 - (correct_cases / total_cases)
+cat("Error rate:", error_rate, "\n")
+```
+
