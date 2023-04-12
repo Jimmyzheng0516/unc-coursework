@@ -1,0 +1,55 @@
+---
+title: "ECON573 Project Merging Data"
+author: "Jimmy Zheng"
+date: "2023-04-12"
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+if (!require("data.table")) {
+  install.packages("data.table")
+  library(data.table)
+}
+
+# Set the folder path
+folder_path <- "Assets and Liabilities"
+
+# List all CSV files in the folder
+all_files <- list.files(path = folder_path, pattern = "*.csv", full.names = TRUE)
+
+# Read all files into a list of data.tables
+data_tables_list <- lapply(all_files, function(x) fread(x, fill = TRUE, verbose = FALSE))
+
+# Identify unique columns across all CSV files, excluding "cert"
+all_columns <- unique(unlist(lapply(data_tables_list, function(dt) setdiff(colnames(dt), "cert"))))
+
+# Initialize an empty list to store the merged datasets
+merged_data_list <- list()
+
+# Iterate through each data.table in the list
+for (dt in data_tables_list) {
+  # Set the key for the data.table to "cert"
+  setkey(dt, cert)
+  
+  # Check if the merged_data_list is empty
+  if (length(merged_data_list) == 0) {
+    # Assign the current data.table to the merged_data_list
+    merged_data_list <- dt
+  } else {
+    # Perform a left join with the current data.table based on the "cert" key
+    merged_data_list <- merged_data_list[dt, on = "cert"]
+  }
+  
+  # Retain only the columns from the current data.table and the "cert" column
+  setcolorder(merged_data_list, c("cert", setdiff(colnames(dt), "cert")))
+}
+
+# Convert the merged data.table to a data.frame
+merged_data <- as.data.frame(merged_data_list)
+
+# Save the merged data as a new CSV file if desired
+write.csv(merged_data, "Merged_Assets_Liabilities.csv", row.names = FALSE)
+
+```
+
