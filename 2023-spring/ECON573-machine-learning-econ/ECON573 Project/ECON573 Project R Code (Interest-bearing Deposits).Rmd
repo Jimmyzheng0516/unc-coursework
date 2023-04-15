@@ -1,0 +1,104 @@
+---
+title: "ECON573 Project R Code (Interest-bearing Deposits)"
+author: "Jimmy Zheng"
+date: "2023-04-15"
+output: html_document
+---
+# Import Packages and Datasets
+
+```{r, warning=FALSE}
+library(readxl)
+library(readr)
+library(leaps)
+library(boot)
+library(car)
+library(dplyr)
+library(tidyr)
+library(caret)
+library(foreach)
+library(doParallel)
+library(splines)
+library(boot)
+library(glmnet)
+library(tree)
+library(randomForest)
+library(pracma)
+library(pls)
+library(mgcv)
+
+deposit_panel_data = as.data.frame(read_csv("merged_panel_data.csv", show_col_types = F))
+
+names(deposit_panel_data)
+```
+
+# Interest-bearing Deposit
+
+## Create Validation Set
+```{r}
+# Panel
+intb_deposit_panel_data = deposit_panel_data[, c(34, 8, 41:43, 10:12, 14, 19, 22, 3, 44:58)]
+intb_panel_cleaned = na.omit(intb_deposit_panel_data)
+
+# Create factors
+intb_panel_cleaned$newdate = as.factor(intb_panel_cleaned$newdate)
+intb_panel_cleaned$year = as.factor(intb_panel_cleaned$year)
+intb_panel_cleaned$Region = as.factor(intb_panel_cleaned$Region)
+intb_panel_cleaned$bkclass = as.factor(intb_panel_cleaned$bkclass)
+intb_panel_cleaned$specgrp = as.factor(intb_panel_cleaned$specgrp)
+intb_panel_cleaned$mutual = as.factor(intb_panel_cleaned$mutual)
+intb_panel_cleaned$regagnt = as.factor(intb_panel_cleaned$regagnt)
+
+# Set the random seed for reproducibility
+set.seed(2)
+
+# Split the data into training and testing sets
+train_frac <- 0.5
+intb_panel_cleaned <- intb_panel_cleaned %>%
+  arrange(newdate, cert) %>% # Arrange the data by quarter (newdate) and Bank_ID
+  group_by(newdate) %>% # Group the data by quarter (newdate)
+  mutate(sample_id = row_number(),
+         total_rows = n()) %>%
+  ungroup() %>%
+  mutate(train_test = ifelse(sample_id <= total_rows * train_frac, "train", "test")) %>%
+  select(-sample_id, -total_rows)
+
+# Create training and testing datasets
+intb_panel_train <- intb_panel_cleaned %>% filter(train_test == "train")
+intb_panel_test <- intb_panel_cleaned %>% filter(train_test == "test")
+
+# Drop the last column (the indicator of train vs test)
+intb_panel_train = intb_panel_train[, -ncol(intb_panel_train)] 
+intb_panel_test = intb_panel_test[, -ncol(intb_panel_test)] 
+
+# Dataframe for regression
+intb_panel_train_reg = intb_panel_train[, -c(2, 4, 6, 13:16, 18:22)] # drop cert and newdate and various short-term interest rates
+intb_panel_test_reg = intb_panel_test[, -c(2, 4, 6, 13:16, 18:22)] # drop cert and newdate and various short-term interest rates
+intb_panel_test_reg = intb_panel_test_reg[intb_panel_test_reg$Region != "Other", ]
+```
+
+## Panel
+
+### Multiple Linear Regression
+
+```{r}
+intb.full.lm.p = lm(Interest_Bearing_Deposits ~ .,data = intb_panel_train_reg)
+summary(intb.full.lm.p)
+```
+
+Multicollinearity may be an issue
+
+```{r}
+round(vif(intb.full.lm.p)[, 1], 2)
+```
+
+Testing Data Prediction
+
+```{r}
+intb_lm_pred = predict(intb.full.lm.p, newdata = intb_panel_test_reg)
+intb_lm_tmse = mean((intb_panel_test_reg$Interest_Bearing_Deposits-intb_lm_pred)^2)
+```
+
+
+
+
+
