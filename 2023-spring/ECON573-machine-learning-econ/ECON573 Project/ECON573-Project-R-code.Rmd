@@ -1,0 +1,524 @@
+---
+title: "ECON573 Project R Code (Total Deposits)"
+author: "Jimmy Zheng"
+date: "2023-04-13"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Import Packages and Datasets
+
+```{r, warning=FALSE}
+library(readxl)
+library(readr)
+library(leaps)
+library(boot)
+library(car)
+library(dplyr)
+library(tidyr)
+library(caret)
+library(foreach)
+library(doParallel)
+library(splines)
+library(boot)
+library(glmnet)
+library(tree)
+library(randomForest)
+library(pracma)
+library(pls)
+library(mgcv)
+library(tidyverse)
+library(summarytools)
+library(xtable)
+library(ggfortify)
+library(visreg)
+
+deposit_panel_data = as.data.frame(read_csv("merged_panel_data.csv", show_col_types = F))
+```
+
+# Total Deposit
+
+## Create Validation Set
+```{r}
+# Panel
+total_deposit_panel_data = deposit_panel_data[, c(26, 8, 41:43, 10:12, 14, 19, 22, 3, 44:58)]
+tdep_panel_cleaned = na.omit(total_deposit_panel_data)
+
+# Create factors
+tdep_panel_cleaned$newdate = as.factor(tdep_panel_cleaned$newdate)
+tdep_panel_cleaned$year = as.factor(tdep_panel_cleaned$year)
+tdep_panel_cleaned$Region = as.factor(tdep_panel_cleaned$Region)
+tdep_panel_cleaned$bkclass = as.factor(tdep_panel_cleaned$bkclass)
+tdep_panel_cleaned$specgrp = as.factor(tdep_panel_cleaned$specgrp)
+tdep_panel_cleaned$mutual = as.factor(tdep_panel_cleaned$mutual)
+tdep_panel_cleaned$regagnt = as.factor(tdep_panel_cleaned$regagnt)
+
+# Set the random seed for reproducibility
+set.seed(2)
+
+# Split the data into training and testing sets
+train_frac <- 0.5
+tdep_panel_cleaned <- tdep_panel_cleaned %>%
+  arrange(newdate, cert) %>% # Arrange the data by quarter (newdate) and Bank_ID
+  group_by(newdate) %>% # Group the data by quarter (newdate)
+  mutate(sample_id = row_number(),
+         total_rows = n()) %>%
+  ungroup() %>%
+  mutate(train_test = ifelse(sample_id <= total_rows * train_frac, "train", "test")) %>%
+  select(-sample_id, -total_rows)
+
+# Create training and testing datasets
+tdep_panel_train <- tdep_panel_cleaned %>% filter(train_test == "train")
+tdep_panel_test <- tdep_panel_cleaned %>% filter(train_test == "test")
+
+# Drop the last column (the indicator of train vs test)
+tdep_panel_train = tdep_panel_train[, -ncol(tdep_panel_train)] 
+tdep_panel_test = tdep_panel_test[, -ncol(tdep_panel_test)] 
+
+# Dataframe for regression
+tdep_panel_train_reg = tdep_panel_train[, -c(2, 4, 6, 13:16, 18:22)] # drop cert and newdate and various short-term interest rates
+tdep_panel_test_reg = tdep_panel_test[, -c(2, 4, 6, 13:16, 18:22)] # drop cert and newdate and various short-term interest rates
+tdep_panel_test_reg = tdep_panel_test_reg[tdep_panel_test_reg$Region != "Other", ]
+```
+
+## Panel
+
+### Multiple Linear Regression
+
+```{r}
+full.lm.p = lm(log(Total_Deposits) ~ .,data = tdep_panel_train_reg)
+summary(full.lm.p)
+```
+
+```{r}
+# Visualization
+# Data Preprocessing
+tdep_panel_train_reg2 = tdep_panel_train_reg %>% 
+  rename(Umich_consumer_sent = `Umich consumer sent.x`, 
+         Real_disposable_income = `Real disposable income.x`,
+         Population = Population.x,
+         total_bank_equity_capital = `total bank equity capital.x`,
+         NASDAQ = NASDAQ.x,
+         ten_year_nom = `10y nom`)
+
+full.lm.p2 = lm(log(Total_Deposits) ~ .,data = tdep_panel_train_reg2)
+
+# Partial regression plot for ffr_0
+visreg(full.lm.p2, "ffr_0", partial = TRUE, ylab = "log(Total_Deposits) (Adjusted)", xlab = "ffr_0 (Adjusted)", main = "Partial Regression Plot: log(Total_Deposits) vs ffr_0")
+```
+
+Multicollinearity may be an issue
+
+```{r}
+round(vif(full.lm.p)[, 1], 2)
+```
+
+Testing Data Prediction
+
+```{r}
+tdep_lm_pred = predict(full.lm.p, newdata = tdep_panel_test_reg)
+tdep_lm_tmse = mean((log(tdep_panel_test_reg$Total_Deposits)-tdep_lm_pred)^2)
+```
+
+### Polynomial Regression
+
+```{r}
+cv.error.1 <- rep(0, 5)
+for (i in 1:5) {
+  glm.fit <- glm(log(Total_Deposits) ~ poly(ffr_0, i) +
+                   poly(`10y nom`, 1) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt 
+               +`Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + 
+                 `total bank equity capital.x` + NASDAQ.x, 
+               data = tdep_panel_train_reg)
+  cv.error.1[i] <- cv.glm(tdep_panel_train_reg, glm.fit, K=5)$delta[1]
+}
+
+cv.error.2 <- rep(0, 5)
+for (i in 1:5) {
+  glm.fit <- glm(log(Total_Deposits) ~ poly(ffr_0, i) +
+                   poly(`10y nom`, 2) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt 
+               +`Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + 
+                 `total bank equity capital.x` + NASDAQ.x, 
+               data = tdep_panel_train_reg)
+  cv.error.2[i] <- cv.glm(tdep_panel_train_reg, glm.fit, K=5)$delta[1]
+}
+
+cv.error.3 <- rep(0, 5)
+for (i in 1:5) {
+  glm.fit <- glm(log(Total_Deposits) ~ poly(ffr_0, i) +
+                   poly(`10y nom`, 3) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt 
+               +`Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + 
+                 `total bank equity capital.x` + NASDAQ.x, 
+               data = tdep_panel_train_reg)
+  cv.error.3[i] <- cv.glm(tdep_panel_train_reg, glm.fit, K=5)$delta[1]
+}
+
+cv.error.4 <- rep(0, 5)
+for (i in 1:5) {
+  glm.fit <- glm(log(Total_Deposits) ~ poly(ffr_0, i) +
+                   poly(`10y nom`, 4) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt 
+               +`Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + 
+                 `total bank equity capital.x` + NASDAQ.x, 
+               data = tdep_panel_train_reg)
+  cv.error.4[i] <- cv.glm(tdep_panel_train_reg, glm.fit, K=5)$delta[1]
+}
+
+cv.error.5 <- rep(0, 5)
+for (i in 1:5) {
+  glm.fit <- glm(log(Total_Deposits) ~ poly(ffr_0, i) +
+                   poly(`10y nom`, 5) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt 
+               +`Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + 
+                 `total bank equity capital.x` + NASDAQ.x, 
+               data = tdep_panel_train_reg)
+  cv.error.5[i] <- cv.glm(tdep_panel_train_reg, glm.fit, K=5)$delta[1]
+}
+
+cv.poly = as.data.frame(rbind(cv.error.1, cv.error.2, cv.error.3, cv.error.4, cv.error.5))
+
+colnames(cv.poly) = c("ffr_0_order_1", "ffr_0_order_2", "ffr_0_order_3", "ffr_0_order_4", "ffr_0_order_5")
+rownames(cv.poly) = 1:nrow(cv.poly)
+
+cv.poly$order_10ynom = c(1, 2, 3, 4, 5)
+
+cv.poly = cv.poly[, c(6, 1:5)]
+
+cv.poly
+
+min(c(cv.error.1, cv.error.2, cv.error.3, cv.error.4, cv.error.5))
+
+which.min(cv.poly)
+
+# Plot the first line and set up the plot axes
+plot(cv.poly$order_10ynom, cv.poly$ffr_0_order_1, type = "b", ylim = c(0.9803, 0.9815),
+     xlab = "Order of 10y Nominal Bond", ylab = "Cross-validated MSE",
+     main = "Cross-validated MSE for Different Polynomial Orders")
+
+# Add the remaining lines to the plot
+lines(cv.poly$order_10ynom, cv.poly$ffr_0_order_2, type = "b", col = "blue")
+lines(cv.poly$order_10ynom, cv.poly$ffr_0_order_3, type = "b", col = "green")
+lines(cv.poly$order_10ynom, cv.poly$ffr_0_order_4, type = "b", col = "orange")
+lines(cv.poly$order_10ynom, cv.poly$ffr_0_order_5, type = "b", col = "purple")
+```
+
+Polynomial Model selected:
+
+```{r}
+poly.p <- lm(log(Total_Deposits) ~ poly(ffr_0, 2) +
+                   poly(`10y nom`, 1) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt 
+               +`Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + 
+                 `total bank equity capital.x` + NASDAQ.x, 
+               data = tdep_panel_train_reg)
+
+summary(poly.p)
+```
+
+Testing Data Prediction
+
+```{r}
+tdep_poly_pred = predict(poly.p, newdata = tdep_panel_test_reg)
+tdep_poly_tmse = mean((log(tdep_panel_test_reg$Total_Deposits)-tdep_poly_pred)^2)
+```
+
+### Natural Splines
+
+```{r}
+# Prepare the data
+data <- tdep_panel_train_reg
+data$log_Total_Deposits <- log(data$Total_Deposits)
+
+# Create a function to calculate cross-validated MSE for a given degree of freedom
+cv_mse_ns <- function(data, dof, k) {
+  fit <- glm(log_Total_Deposits ~ ns(ffr_0, df = dof) + ns(`10y nom`, df = dof) + Region + year + offdom + 
+                 offfor + specgrp + mutual + regagnt + `Umich consumer sent.x` + 
+                 `Real disposable income.x` + Population.x + `total bank equity capital.x` + NASDAQ.x, 
+               data = data)
+  
+  # Perform k-fold cross-validation
+  cv_results <- cv.glm(data, fit, K = k)
+  
+  # Return the cross-validated MSE
+  return(cv_results$delta[1])
+}
+
+# Set the random seed for reproducibility
+set.seed(1)
+
+# Define the number of cross-validation folds
+k <- 5
+
+# Calculate cross-validated MSE for each degree of freedom
+max_df <- 10
+mse_values <- sapply(1:max_df, function(dof_constant) cv_mse_ns(data, dof_constant, k))
+
+# Store the results in a data frame
+results_df <- data.frame(Degree_of_Freedom = 1:max_df, MSE = mse_values)
+
+# Standard deviation of MSE
+std_mse <- sd(results_df$MSE)
+
+# Find the df with the lowest MSE
+min_mse_df <- results_df[which.min(results_df$MSE), "Degree_of_Freedom"]
+
+# Calculate the one standard deviation rule thresholds
+upper_threshold <- results_df$MSE[min_mse_df] + std_mse
+lower_threshold <- results_df$MSE[min_mse_df] - std_mse
+
+# Create the plot
+ggplot(results_df, aes(x = Degree_of_Freedom, y = MSE)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = MSE - std_mse, ymax = MSE + std_mse), width = 0.2, color = "red") +
+  geom_hline(yintercept = lower_threshold, linetype = "dashed", color = "blue") +
+  geom_hline(yintercept = upper_threshold, linetype = "dashed", color = "blue") +
+  labs(title = "Cross-validated MSE vs Degree of Freedom",
+       x = "Degree of Freedom",
+       y = "MSE") +
+  theme_minimal()
+```
+
+Final Model for the natural spline:
+
+```{r}
+spline.tdep.p = glm(log(Total_Deposits) ~ ns(ffr_0, df = 4) + ns(`10y nom`, df = 4) + Region + year + offdom + offfor + specgrp + mutual + regagnt + `Umich consumer sent.x` + `Real disposable income.x` + Population.x + `total bank equity capital.x` + NASDAQ.x, data = tdep_panel_train_reg)
+
+summary(spline.tdep.p)
+```
+
+Testing Data Prediction
+
+```{r}
+tdep_ns_pred = predict(spline.tdep.p, newdata = tdep_panel_test_reg)
+tdep_ns_tmse = mean((log(tdep_panel_test_reg$Total_Deposits)-tdep_ns_pred)^2)
+```
+
+### GAMS
+
+```{r}
+data <- tdep_panel_train_reg %>% 
+  rename(Umich_consumer_sent = `Umich consumer sent.x`, 
+         Real_disposable_income = `Real disposable income.x`,
+         Population = Population.x,
+         total_bank_equity_capital = `total bank equity capital.x`,
+         NASDAQ = NASDAQ.x,
+         ten_year_nom = `10y nom`)
+
+data$log_Total_Deposits <- log(data$Total_Deposits)
+
+formula = log(Total_Deposits) ~ s(ffr_0) + s(ten_year_nom) + Region + year + offdom + offfor + specgrp + mutual + regagnt + Umich_consumer_sent + Real_disposable_income + Population + total_bank_equity_capital + NASDAQ
+
+tdep_gam = gam(formula, data = data, method = "REML")
+
+# Plot of the smooting spline
+plot(tdep_gam, col = "blue", main = "The Estimated Smoothed Spline Function", ylab = "f(x)")
+```
+
+Testing Data Prediction
+
+```{r}
+tdep_panel_test_reg2 = tdep_panel_test_reg %>% 
+  rename(Umich_consumer_sent = `Umich consumer sent.x`, 
+         Real_disposable_income = `Real disposable income.x`,
+         Population = Population.x,
+         total_bank_equity_capital = `total bank equity capital.x`,
+         NASDAQ = NASDAQ.x,
+         ten_year_nom = `10y nom`)
+
+tdep_gam_pred = predict(tdep_gam, newdata = tdep_panel_test_reg2)
+tdep_gam_tmse = mean((log(tdep_panel_test_reg2$Total_Deposits)-tdep_gam_pred)^2)
+```
+
+### Ridge Regression
+ 
+```{r, warning=FALSE}
+grid <- 10^seq(10, -2, length = 100)
+
+x <- model.matrix(log(Total_Deposits) ~ ., tdep_panel_train_reg)[, -1]
+y <- log(tdep_panel_train_reg$Total_Deposits)
+
+x_test <- model.matrix(log(Total_Deposits) ~ ., tdep_panel_test_reg)[, -1]
+
+set.seed(1)
+cv.out.ridge <- cv.glmnet(x, y, alpha = 0, nfolds = 10)
+plot(cv.out.ridge)
+
+# Lambda value with the minimum mean cross-validated error
+bestlam_min_ridge <- cv.out.ridge$lambda.min
+cat("Best lambda (min MSE):", bestlam_min_ridge, "\n")
+
+# Lambda value within one standard error of the minimum
+bestlam_1se_ridge <- cv.out.ridge$lambda.1se
+cat("Best lambda (1-SE rule):", bestlam_1se_ridge, "\n")
+
+out.ridge <- glmnet(x, y, alpha = 0)
+ridgecoef = predict(out.ridge, type = "coefficients", s = bestlam_1se_ridge)[1:57, ]
+
+ridge.mod = glmnet(x, y, lambda = grid, alpha = 0)
+
+ridge_lm_compare = abs(ridgecoef) < abs(summary(full.lm.p)$coef[, 1])
+
+ridge_lm_compare
+ridgecoef
+```
+
+Testing Data Prediction
+
+```{r}
+tdep_ridge_pred = predict(out.ridge, s = bestlam_1se_ridge, newx = x_test)
+tdep_ridge_tmse = mean((log(tdep_panel_test_reg$Total_Deposits)-tdep_ridge_pred)^2)
+```
+
+### The Lasso
+
+```{r}
+ set.seed(1)
+cv.out.lasso <- cv.glmnet(x, y, alpha = 1, nfolds = 10)
+plot(cv.out.lasso)
+
+# Lambda value with the minimum mean cross-validated error
+bestlam_min_lasso <- cv.out.lasso$lambda.min
+cat("Best lambda (min MSE):", bestlam_min_lasso, "\n")
+
+# Lambda value within one standard error of the minimum
+bestlam_1se_lasso <- cv.out.lasso$lambda.1se
+cat("Best lambda (1-SE rule):", bestlam_1se_lasso, "\n")
+
+out.lasso <- glmnet(x, y, alpha = 1)
+lassocoef = predict(out.lasso, type = "coefficients", s = bestlam_1se_lasso)[1:57, ]
+
+lasso_lm_compare = abs(lassocoef) < abs(summary(full.lm.p)$coef[, 1])
+lasso_lm_compare
+```
+
+Testing Data Prediction
+
+```{r}
+tdep_lasso_pred = predict(out.lasso, s = bestlam_1se_lasso, newx = x_test)
+tdep_lasso_tmse = mean((log(tdep_panel_test_reg$Total_Deposits)-tdep_lasso_pred)^2)
+```
+
+### Principal Component Regression
+
+```{r}
+# Rename columns
+tdep_panel_train_reg3 <- tdep_panel_train_reg %>% 
+  rename(Umich_consumer_sent = `Umich consumer sent.x`, 
+         Real_disposable_income = `Real disposable income.x`,
+         Population = Population.x,
+         total_bank_equity_capital = `total bank equity capital.x`,
+         NASDAQ = NASDAQ.x,
+         ten_year_nom = `10y nom`)
+
+# Set the random seed for reproducibility
+set.seed(1)
+
+# Define the number of cross-validation folds
+k <- 5
+
+# Fit PCA regression model
+pca_tdep_fit <- pcr(log(Total_Deposits) ~ ffr_0 + as.numeric(year) + 
+                      ten_year_nom + offdom + 
+                 offfor + Umich_consumer_sent + 
+                 Real_disposable_income + Population + 
+                 total_bank_equity_capital + NASDAQ,
+               data = tdep_panel_train_reg3, 
+               scale = TRUE, validation = "CV", segments = k)
+
+# Calculate MSEP for each number of components
+mse_tdep_pca <- MSEP(pca_tdep_fit)
+
+# Convert MSEP values to a data frame
+mse_tdep_pca_df <- data.frame(MSE = unlist(mse_tdep_pca["val"])[seq(1, 21, 2)], Number_of_Components = 0:10)
+
+plot(mse_tdep_pca_df$Number_of_Components, mse_tdep_pca_df$MSE, type = "b", main = "Cross-Validated MSE v.s. Number of Principal Components", ylab = "CV MSE", xlab = "Number of Principal Components", col = "red")
+
+# Optimal Number of Components
+m_tdep_pca = mse_tdep_pca_df$Number_of_Components[which.min(mse_tdep_pca_df$MSE)]
+
+# Get the coefficients for the optimal number of components
+coef(pca_tdep_fit, m_tdep_pca)
+
+pca_tdep_fit$coefficients
+
+# Get the loading matrix for the PCA model
+loading_matrix <- loadings(pca_tdep_fit)
+
+loadings(pca_tdep_fit)[, 1:m_tdep_pca]
+```
+
+Testing Data Prediction
+
+```{r}
+# Create a new data frame with only the predictors from the testing data set
+tdep_panel_test_reg2 = tdep_panel_test_reg %>% 
+  rename(Umich_consumer_sent = `Umich consumer sent.x`, 
+         Real_disposable_income = `Real disposable income.x`,
+         Population = Population.x,
+         total_bank_equity_capital = `total bank equity capital.x`,
+         NASDAQ = NASDAQ.x,
+         ten_year_nom = `10y nom`)
+
+pca_tdep_test_predictors <- tdep_panel_test_reg2[, c("ffr_0", "year", "ten_year_nom", "offdom", "offfor", "Umich_consumer_sent", "Real_disposable_income", "Population", "total_bank_equity_capital", "NASDAQ")]
+
+pca_tdep_test_predictors$year <- as.numeric(pca_tdep_test_predictors$year)
+
+# Predict the final model with M components using the predict() function and the testing data
+tdep_pca_pred <- predict(pca_tdep_fit, ncomp = m_tdep_pca, newdata = pca_tdep_test_predictors)
+tdep_pca_tmse = mean((log(tdep_panel_test_reg2$Total_Deposits)-tdep_pca_pred)^2)
+```
+
+## Best Prediction Model - Total Deposits  
+
+```{r}
+tdep_tmse = data.frame(Model = c("Multiple Linear Regression", "Polynomial Regression", "Natural Cubic Spline", "Generalized Additive Model", "Ridge Regression", "The Lasso", "Principal Component Regression"),
+                       Test_MSE = c(tdep_lm_tmse, tdep_poly_tmse, tdep_ns_tmse, tdep_gam_tmse, tdep_ridge_tmse, tdep_lasso_tmse, tdep_pca_tmse))
+
+tdep_tmse = tdep_tmse[order(tdep_tmse$Test_MSE), ]
+
+rownames(tdep_tmse) = 1:nrow(tdep_tmse)
+
+print(tdep_tmse)
+```
+
+The Ridge Regression Model is the best model in terms of prediction
+
+```{r}
+predict(out.ridge, s = bestlam_1se_ridge, type = "coefficients")
+```
+
+## Summary Statistics
+
+```{r}
+data_summary = tdep_panel_cleaned[, -c(2, 4, 6, 13:16, 18:22, 28)]
+
+# Calculate summary statistics
+summary_stats <- data_summary %>% 
+  summarytools::descr(
+    stats = "all", 
+    transpose = TRUE
+  )
+
+# Convert summary statistics to LaTeX table
+latex_table <- xtable(summary_stats)
+
+# Print LaTeX table
+print(latex_table, type = "latex", floating = TRUE, caption.placement = "top", include.rownames = TRUE, include.colnames = TRUE, caption = "Summary Statistics")
+```
+
+
+
+
+
+
+
