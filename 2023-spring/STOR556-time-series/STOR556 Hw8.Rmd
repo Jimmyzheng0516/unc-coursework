@@ -1,0 +1,326 @@
+---
+title: "STOR556 Hw8"
+author: "Jimmy Zheng"
+date: "2023-04-17"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r, warning=FALSE}
+library(vars)
+library(fpp)
+library(expm)
+```
+
+## Problem 2
+
+```{r}
+changes <- read.table("~/Desktop/changes.txt", quote="\"", comment.char="")
+colnames(changes) = c("Investment", "Inventories")
+investment = ts(changes$Investment)
+inventories = ts(changes$Inventories)
+```
+
+### (a) Provide a time plot of the two series using the function plot.ts.
+
+```{r}
+par(mfrow = c(1, 2))
+plot.ts(investment)
+plot.ts(inventories)
+```
+
+### (b) Provide ACF and partial ACF plots. Comment on any temporal dependence seen in these plots.
+
+```{r}
+# ACF
+par(mar=c(3,3,3,3))
+acf(changes,lag.max = 50, type = "correlation", plot = TRUE)
+```
+
+First of all, from the ACV of first differences of fixed investment itself, it seems to be cyclical dependence across time. On the other hand, the ACV of first differences of business inventories itself does NOT show apparent cyclical patterns, but a significant autocorrelation at lag = 4. 
+
+The top-right ACF shows significant $\mathrm{\widehat{Corr}}(X_{1, t+h}, X_{2, t})$ at $h=1$. This implies that business inventories from the previous quarter provides information about current fixed investment. 
+
+The bottom-left ACF does not show any significant $\mathrm{\widehat{Corr}}(X_{1, t+h}, X_{2, t})$ at any $h<0$.
+
+```{r}
+# Partial ACF
+par(mar=c(3,3,3,3))
+acf(changes,lag.max = 50, type = "partial", plot = TRUE)
+```
+
+The two diagonal partial ACF shows some significant auto-dependence of the two time series across time, $h = 1$ for fixed investment and $h=4$ for business inventories. 
+
+The top-right partial ACF diagram does not suggest significant dependence between past inventories and current investment.
+
+The bottom-left partial ACF diagram suggests significant dependence between past investment and current inventories at lag 1 and multiple lags beyond 20. 
+
+### (c) Carry out the “pre-whitening” procedure for testing independence between the two series discussed in class. Does it suggest that the two series are uncorrelated?
+
+```{r}
+# Find the best ARIMA orders for each time series
+auto.arima(investment,max.p=5,max.q=5,max.P = 0,max.Q=0,ic="aic",allowmean = TRUE)
+auto.arima(inventories,max.p=5,max.q=5,max.P = 0,max.Q=0,ic="aic",allowmean = TRUE)
+
+# Fit both time series with suitable ARIMA orders and take residuals
+invest.arima = arima(investment, order=c(2,0,1), include.mean = TRUE, method = "ML")
+invent.arima = arima(inventories, order=c(1,0,0), include.mean = TRUE, method = "ML")
+
+invest_resid = residuals(invest.arima)
+invent_resid = residuals(invent.arima)
+
+# Test the correlation after "pre-whitening"
+resid <- cbind(invest_resid, invent_resid) 
+par(mar=c(3,3,3,3))
+acf(resid)
+```
+
+After "pre-whitening", the dependence between these two time series seems to be less significant. Nevertheless, one could still argue the top-right ACF plot might suggest significant dependence between past investment and current inventories at lag 1. 
+
+### (d) What order p is suggested by the function VARselect for fitting a VAR(p) model? Choose the smallest suggested p and output the summary of the corresponding fitted VAR(p) model.
+
+```{r}
+VARselect(changes, lag.max=8, type="const")$selection
+```
+
+The smallest order p is 1, corresponding to VAR(1) model.
+
+```{r}
+var_changes = VAR(changes, p=1, type="const")
+summary(var_changes)
+```
+
+### (e) Plot the residuals from the fitted VAR model and their ACF and partial ACF. Comment on any deviations from the assumption of WN. Add also QQ plots to check their normality. Is normality supported by the formal normality tests?
+
+```{r}
+# Plot the residuals
+resid_var_changes = resid(var_changes)
+plot.ts(resid_var_changes,ylab = 'Residuals',xlab='Quarters')
+```
+
+The time series plots of the residuals do NOT suggest any anomalies violating the assumption of white noise.
+
+```{r}
+# Plot the residual ACF
+acf(resid_var_changes)
+```
+
+The residual ACF does NOT suggest any anomalies violating the assumption of white noise. The  auto-correlation of inventories at lag 4 is likely to be significant by chance. 
+
+```{r}
+# Plot the residual partial ACF
+pacf(resid_var_changes)
+```
+
+The residual PACF does NOT suggest any anomalies violating the assumption of white noise. The  auto-dependence of inventories at lag 4 is likely to be significant by chance. 
+
+```{r}
+# Check residual normality
+qqnorm(resid_var_changes[,1], main="")
+qqline(resid_var_changes[,1])
+qqnorm(resid_var_changes[,2], main="")
+qqline(resid_var_changes[,2])
+```
+
+However, from the QQ-norm plots, both residuals are likely to be normally distributed as most of the residuals adhere to the theoretical QQ-norm line.
+
+```{r}
+# Normality Test
+normality.test(var_changes)
+```
+
+In fact, the JB-normality test has p-value = 0.7268 > 0.05, which fails to reject the null hypothesis that the residuals from the VAR(1) model follow multivariate normal distribution.
+
+### (f) Forecast the series using the fitted VAR model for 4 steps ahead and provide the corresponding forecast plot.
+
+```{r}
+# 4-step forcast
+pred_var_changes = predict(var_changes, n.ahead = 4, ci = 0.95)
+par(mar=c(3,3,1,1))
+plot(pred_var_changes)
+```
+
+### (g) Report and comment on the Granger causality analysis. Is it consistent with the estimated VAR model?
+
+```{r}
+# Granger Causality Analysis
+set.seed(1)
+var_changes_causal_1 = causality(var_changes, cause = "Investment", boot = T)
+var_changes_causal_2 = causality(var_changes, cause = "Inventories", boot = T)
+var_changes_causal_1$Granger
+var_changes_causal_2$Granger
+summary(var_changes)$varresult
+```
+
+According to the Granger causality analysis, we reject the null and conclude that Investment do Granger-cause Inventories, which is consistent with the VAR(1) model estimated as it produces significant coefficient $\hat \phi_{21}=0.4753\not=0$ with p-value 0.01449. 
+
+We also reject the null and conclude that Inventories do Granger-cause Investments, which is consistent with the VAR(1) model estimated as it produces significant coefficient $\hat \phi_{12}=0.17088\not=0$ with p-value 0.00268. 
+
+## Problem 3
+
+### (a) Show that $X_{2t}$ is also a WN series
+
+Given the time series $X_{2t} = \phi Z_{1,t-2} + Z_{2t}$, where $Z_{1t}$ and $Z_{2t}$ are independent WN series with covariance matrix equal to $\sigma^2 I$. Prove that $X_{2t}$ is also a white noise process.
+
+Calculate the mean of $X_{2t}$:
+
+\begin{align*}
+E(X_{2t}) &= E(\phi Z_{1,t-2} + Z_{2t}) \\
+          &= \phi E(Z_{1,t-2}) + E(Z_{2t}) \\
+          &= 0 + 0 \\
+          &= 0
+\end{align*}
+
+Calculate ACVF $\gamma_{X_{2t}}(h)$:
+
+\begin{align*}
+\gamma_{X_{2t}}(h) &= E\left[X_{2t}X_{2,t-h}\right] \\
+                   &= E\left[(\phi Z_{1,t-2} + Z_{2t})(\phi Z_{1,t-h-2} + Z_{2,t-h})\right] \\
+                   &= E\left[\phi^2 Z_{1,t-2} Z_{1,t-h-2} + \phi Z_{1,t-2} Z_{2,t-h} + \phi Z_{2t} Z_{1,t-h-2} + Z_{2t} Z_{2,t-h}\right]
+\end{align*}
+
+For $h = 0$:
+
+\begin{align*}
+\gamma_{X_{2t}}(0) &= E\left[\phi^2 Z_{1,t-2} Z_{1,t-2} + \phi Z_{1,t-2} Z_{2t} + \phi Z_{2t} Z_{1,t-2} + Z_{2t} Z_{2t}\right] \\
+                   &= \phi^2 E\left[Z_{1,t-2}^2\right] + \phi E\left[Z_{1,t-2} Z_{2t}\right] + \phi E\left[Z_{2t} Z_{1,t-2}\right] + E\left[Z_{2t}^2\right] \\
+                   &= \phi^2 \sigma^2 + 0 + 0 + \sigma^2 \\
+                   &= (\phi^2 + 1) \sigma^2\\
+                   &= E(X_{2t}^2)
+\end{align*}
+
+For $h \neq 0$, the ACVF will be zero due to the independence of $Z_{1t}$ and $Z_{2t}$:
+
+\begin{align*}
+\gamma_{X_{2t}}(h) &= \phi^2 E\left[Z_{1,t-2} Z_{1,t-h-2}\right] + \phi E\left[Z_{1,t-2} Z_{2,t-h}\right] \\
+&\quad + \phi E\left[Z_{2t} Z_{1,t-h-2}\right] + E\left[Z_{2t} Z_{2,t-h}\right] \\
+&= 0 + 0 + 0 + 0 \\
+&= 0
+\end{align*}
+
+Since the mean of $X_{2t}$ is zero and its ACVF is nonzero only when the lag $h = 0$, we can conclude that $X_{2t}$ is a WN series.
+
+### (b) for positive integer h, what is the h-step-ahead prediction of X_1,T+h given X1,1,..., X1,T ? Similarly, what is the h-step-ahead prediction of X2,T+h given X2,1,...,X2,T?
+
+Since $X_{1t}$ and $X_{2t}$ themselves are both WN process, the h-step-ahead prediction, $X_{1,T+h}$ and $X_{2,T+h}$, based on themselves, should both be zero for positive integer h.
+
+### (c) (c) Given the way the series X2t is constructed, what is the h-step-ahead prediction of X2,T+h given the bivariate observations X1,...,XT ? Answer this question for h = 1,2,3,4, assuming T is large.
+
+For $h=1$:
+
+$X_{2,T+1}=5X_{1,T-1}+Z_{2, T+1} \implies \widehat X_{2,T}(1)=5X_{1,T-1}$ as our best guess for $Z_{2, T+1}$ is zero, and $X_{1,T-1}$ is in our sample.
+
+For $h=2$:
+
+$X_{2,T+2}=5X_{1,T}+Z_{2, T+2} \implies \widehat X_{2,T}(2)=5X_{1,T}$ as our best guess for $Z_{2, T+2}$ is zero, and $X_{1,T}$ is in our sample.
+
+For $h=3$:
+
+$X_{2,T+3}=5X_{1,T+1}+Z_{2, T+3} \implies \widehat X_{2,T}(3)=0$ as our best guesses for $Z_{2, T+3}$ and $X_{1,T+1}=Z_{1,T+1}$ are both zero.
+
+For $h=4$:
+
+$X_{2,T+4}=5X_{1,T+2}+Z_{2, T+4} \implies \widehat X_{2,T}(4)=0$ as our best guesses for $Z_{2, T+4}$ and $X_{1,T+2}=Z_{1,T+2}$ are both zero.
+
+### (d) Generate the series $X_t$ for t = 1,...,T + 4 with T = 100, assuming the WN series consist of independent normal observations (the code to do this can be found in the lecture slides).
+
+```{r}
+# Generate the bivariate time series
+set.seed(2)
+l <- 2
+T <- 100
+phi <- 5
+xx <- rnorm(T+l+4)
+x1 <- xx[(1+l):(T+l+4)]
+x2 <- phi*xx[1:(T+4)] + rnorm(T+4)
+
+x <- cbind(x1,x2)
+
+# Estimate the value of phi by regression
+x_train = x[1:100, ] # leave out last 4 observation
+var_x = VAR(x_train, p=2, type="none")
+
+# Prediction based on X2,1...X2,T as in part (b)
+pred_1 = rep(0, 4)
+
+# Prediction based on bivariate X1...XT as in part (c)
+pred_2 <- predict(var_x, n.ahead = 4, ci = 0.95)$fcst$x2[, 1]
+
+# Compare the mean squared prediction errors for the two forecasting scenarios.
+mse_1 = mean((x[101:104, 2]-pred_1)^2)
+mse_2 = mean((x[101:104, 2]-pred_2)^2)
+cbind(MSE_part_b = mse_1, MSE_part_c = mse_2)
+```
+
+It seems that the forecasting scenario in part (c), i.e. using the bivariate $X_t$, produces much lower MSE than the forecasting scenario in part (b). This probably signifies that although $X_{2t}$ itself is indeed a WN series, its dependency on $X_{1,t-2}$ could be utilized in prediction to generate more accurate forecast.
+
+## Problem 4
+
+### (a)
+
+```{r}
+# Generate the phi matrix
+phi = matrix(data=c(0.5, 0.1, 0.1, 0.6), nrow = 2)
+
+# Calculating Equation 1
+cum_sum_phi = matrix(data=c(0, 0, 0, 0), nrow = 2)
+for (i in 1:50) {
+  even_power <- 2 * i
+  cum_sum_phi <- cum_sum_phi + phi %^% even_power
+}
+
+I = diag(2)
+
+# Calculating Equation 2
+inverse = solve(I - phi %^% 2)
+
+# Comparing twp Equations
+inverse
+cum_sum_phi + I
+```
+
+From the above calculation, matrix $(I+\Phi+\Phi^2+\Phi^4+...)$ is indeed the same as matrix $(I-\Phi^2)^{-1}$. Therefore, Equation (1) and (2) indeed coincide. 
+
+### (b)
+
+Given the matrix $\Phi = \begin{pmatrix} \phi_{11} & \phi_{12} \\ \phi_{12} & \phi_{22} \end{pmatrix}$ with $\phi_{12} = \phi_{21}$, we can calculate $\Phi^2$ as follows:
+
+\begin{align*}
+\Phi^2 &= \Phi \cdot \Phi \\
+&= \begin{pmatrix} \phi_{11} & \phi_{12} \\ \phi_{12} & \phi_{22} \end{pmatrix} \begin{pmatrix} \phi_{11} & \phi_{12} \\ \phi_{12} & \phi_{22} \end{pmatrix} \\
+&= \begin{pmatrix} \phi_{11}^2 + \phi_{12}^2 & \phi_{11}\phi_{12} + \phi_{12}\phi_{22} \\ \phi_{12}\phi_{11} + \phi_{22}\phi_{12} & \phi_{12}^2 + \phi_{22}^2 \end{pmatrix}
+\end{align*}
+
+Next, we compute $I - \Phi^2$:
+
+\begin{align*}
+I - \Phi^2 &= \begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix} - \begin{pmatrix} \phi_{11}^2 + \phi_{12}^2 & \phi_{11}\phi_{12} + \phi_{12}\phi_{22} \\ \phi_{12}\phi_{11} + \phi_{22}\phi_{12} & \phi_{12}^2 + \phi_{22}^2 \end{pmatrix} \\
+&= \begin{pmatrix} 1 - \phi_{11}^2 - \phi_{12}^2 & -\phi_{11}\phi_{12} - \phi_{12}\phi_{22} \\ -\phi_{12}\phi_{11} - \phi_{22}\phi_{12} & 1 - \phi_{12}^2 - \phi_{22}^2 \end{pmatrix}
+\end{align*}
+
+Now, we find the inverse of $(I - \Phi^2)$, and we have:
+
+\begin{align*}
+\gamma_X(0) &= \sigma_z^2 \cdot \frac{1}{(1 - \phi_{11}^2 - \phi_{12}^2)(1 - \phi_{12}^2 - \phi_{22}^2) - (-\phi_{11}\phi_{12} - \phi_{12}\phi_{22})^2} \\
+&\times \begin{pmatrix} 1 - \phi_{12}^2 - \phi_{22}^2 & \phi_{11}\phi_{12} + \phi_{12}\phi_{22} \\ \phi_{12}\phi_{11} + \phi_{22}\phi_{12} & 1 - \phi_{11}^2 - \phi_{12}^2 \end{pmatrix}
+\end{align*}
+
+### (c)
+
+```{r}
+source("VAR-library.R")
+
+sigma_z = 0.25*diag(2)
+
+# Generate the time series
+set.seed(1)
+y = t(VAR.sim(1000, phi, Sigma = sigma_z))
+
+# Sample Covariance Matrix
+cov(y)
+
+# Model Covariance Matrix from Equation (2)
+0.25*solve(I - phi %^% 2)
+```
+
+
