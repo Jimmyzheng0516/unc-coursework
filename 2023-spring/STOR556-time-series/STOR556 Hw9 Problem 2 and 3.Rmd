@@ -1,0 +1,203 @@
+---
+title: "STOR556 Hw9 Problem 2 and 3"
+author: "Jimmy Zheng"
+date: "2023-04-25"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Problem 2
+
+```{r, warning=FALSE}
+library(AER)
+library(urca)
+data("PepperPrice")
+
+# Convert it to logarithm series
+ts = ts(log(PepperPrice))
+```
+
+### (a) Provide the time plot of the two time series of log(PepperPrice).
+
+```{r}
+plot.ts(ts)
+```
+
+### (b) For the (logarithm) of the black and white pepper series separately, go through the unit root testing flowchart discussed in the topic on unit roots. What models are suggested for the two series according to the flowchart?
+
+#### Unit root test for log(black)
+
+##### "Trend" Unit Root Test for Black Pepper
+
+```{r}
+black = ts[, 1]
+ur.black.trend = ur.df(black, lags=3, type='trend')
+summary(ur.black.trend)
+```
+
+Given -1.8074 > critical values, conclude $\pi=0$.
+Given 1.7425 < critical values, conclude $\beta_2=0$ given $\pi=0$.
+
+##### "Drift" Unit Root Test for Black Pepper
+
+```{r}
+ur.black.drift = ur.df(black, lags=3, type='drift')
+summary(ur.black.drift)
+```
+
+Given -1.8674 > critical values, conclude $\pi=0$.
+Given 1.8078 < critical values, conclude $\beta_1=0$ given $\pi=0$.
+
+##### "None" Unit Root Test for Black Pepper
+
+```{r}
+ur.black.none = ur.df(black, lags=3, type='none')
+summary(ur.black.none)
+```
+
+Given 0.2494 > critical values, conclude $\pi=0$.
+
+Finally, we conclude that log(black) pepper series $X_{1t}$ is an ARIMA(3,1,0) process: $\Delta X_{1t} = \Delta X_{1,{t-1}} + \Delta X_{1,{t-2}}+ \Delta X_{1,{t-3}} + Z_{1t}$ with $\{Z_{1t}\}\sim\mbox{WN}(0,\sigma^2_Z)$
+
+#### Unit root test for log(white)
+
+##### "Trend" Unit Root Test for White Pepper
+
+```{r}
+white = ts[, 2]
+ur.white.trend = ur.df(white, lags=3, type='trend')
+summary(ur.white.trend)
+```
+
+Given -1.5854 > critical values, conclude $\pi=0$.
+Given 1.2711 < critical values, conclude $\beta_2=0$ given $\pi=0$.
+
+##### "Drift" Unit Root Test for White Pepper
+
+```{r}
+ur.white.drift = ur.df(white, lags=3, type='drift')
+summary(ur.white.drift)
+```
+
+Given -1.5819 > critical values, conclude $\pi=0$.
+Given 1.4101 < critical values, conclude $\beta_1=0$ given $\pi=0$.
+
+##### "None" Unit Root Test for White Pepper
+
+```{r}
+ur.white.none = ur.df(white, lags=3, type='none')
+summary(ur.white.none)
+```
+
+Given 0.4705 > critical values, conclude $\pi=0$.
+
+Finally, we conclude that log(white) pepper series $X_{2t}$ is also an ARIMA(3,1,0) random walk process: $\Delta X_{2t} = \Delta X_{2,{t-1}} + \Delta X_{2,{t-2}}+ \Delta X_{2,{t-3}} + Z_{2t}$ with $\{Z_{2t}\}\sim\mbox{WN}(0,\sigma^2_Z)$
+
+### (c) Apply the test discussed in class to decide if the two series are cointegrated. If cointegrated, what is the suggested cointegrating rank? (Use the critical value of 10%.)
+
+```{r}
+ts = as.data.frame(ts)
+vecm <- ca.jo(ts)
+jo.results <- summary(vecm)
+jo.results
+```
+
+The test statistic for $r\leq1$ is 3.42, less than the 10% critical value 6.50; besides, the test statistic for $r=0$ is 13.58, greater than the 10% critical value 12.91. 
+
+Therefore, we conclude that these two log series are cointegrated and the cointegrated rank is 1. 
+
+### (d) For the cointegrating rank in part (c), fit a suitable VECM model. What is the suggested cointegrating relation according to the model?
+
+```{r}
+vecm.r1 <- cajorls(vecm, r = 1)
+vecm.r1
+```
+
+The suggested cointegrated relation is that $\hat\beta'\mathbf{X}_{t}=X_{1t}-0.8904272X_{2t}=Z_t$, where $Z_t$ is a stationary $\text{I}(0)$ series centered at zero.
+
+## Problem 3
+
+### (a) Generate the 20-dimensional series $Y_t$. To generate the AR(1) factor series Ft, use the function arima.sim setting the seed set.seed(1). Finally, use the function plot.ts to plot (in the same plot with 10 series) the first 5 component series and the last 5 component series.
+
+```{r}
+n = 50
+q = 20
+# Generate F_t, lamda, error, and Y_t
+set.seed(1)
+ft = t(arima.sim(list(order=c(1,0,0), ar = 0.7), n=n))
+
+lambda = c(rep(0.25, 10), rep(2, 10))
+e = matrix(rnorm(q*n, 0, 1), nrow = q, ncol = n)
+yt = lambda %*% ft + e
+
+comp = lambda %*% ft
+
+# Plot the first 5 time series with their components
+par(mfrow=c(4,3)) 
+par(mar=c(2,2,2,2))
+for (l in (1:5)) {
+  plot.ts(yt[l,], col = "blue", main = c("Time Series",`l`))
+}
+for (l in (16:20)) {
+  plot.ts(yt[l,], col = "red", main = c("Time Series",`l`))
+}
+```
+
+### (b) Use the principle component analysis method discussed in class to produce the estimates $\hat{F_t}$ of the factor scores and $\Lambda$ of the loadings.
+
+```{r}
+source("DFM-VAR-library.R")
+
+# Standardize Y_t
+yt_std = t(scale(t(yt), center = T, scale = T))
+
+# PCA
+out <- DFM.VAR(yt_std, r=1)
+
+# Plot the factor time series
+ft_out = out$Fh
+plot.ts(t(out$Fh))
+
+# Plot the loading matrix
+plot.ts(out$Lam,xlab="dim")
+```
+
+### (c) Compute $F_t$ for the generated series $Y_t$.
+
+```{r}
+ft_bar = colSums(yt)
+```
+
+### (d) compare three F_t's
+
+```{r}
+ft_std = t(scale(t(ft), center = T, scale = T))
+ft_bar_std = scale(ft_bar, center = T, scale = T)
+ft_out_std = (-1)*scale(t(ft_out), center = T, scale = T)
+
+plot.ts(t(ft_std))
+lines(ft_bar_std, col = "red")
+lines(ft_out_std, col = "blue")
+```
+
+One could barely see the difference between the three $F_t$'s. However, the blue line ($\hat{F_t}$ estimated by PCA) slightly outperforms red line (the equal weighted $\tilde{F_t}$).
+
+### (e) Explain why you think that taking the weights $\hat{\lambda_j}$ as in (4) might work better than equal weights as in (3).
+
+```{r}
+plot.ts(out$Lam,xlab="dim")
+
+par(mfrow=c(4,3)) 
+par(mar=c(2,2,2,2))
+for (l in (1:5)) {
+  plot.ts(yt[l,])
+  lines(comp[l,], col = "red")
+}
+for (l in (16:20)) {
+  plot.ts(yt[l,])
+  lines(comp[l,], col = "red")
+}
+```
+
+Both the plot of the loading matrix and the time series plot with the factor $F_t$ suggest different weights assigned to different series. From the plots, we could argue that first 5 series should be given lower weights while the last 5 series should be given higher weights.
