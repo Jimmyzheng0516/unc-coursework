@@ -1,0 +1,28 @@
+---
+title: "STOR572 Hw8"
+author: "Jimmy Zheng"
+date: "2023-04-30"
+output: html_document
+---
+
+### Question 1: Conduct the K-S test on the data provided
+
+```{r}
+library(readxl)
+data <- as.data.frame(read_excel("data.xlsx"))
+data = data.frame(i = 1:30, x = data[c(order(data$x)), ])
+data$`i/n` = data$i/30
+data$`(i-1)/n` = (data$i-1)/30
+data$`F(x)` = data$x/50
+data$`i/n-F(x)` = data$`i/n` - data$`F(x)`
+data$`F(x)-(i-1)/n` = data$`F(x)` - data$`(i-1)/n`
+
+D_plus = max(data$`i/n-F(x)`)
+D_minus = max(data$`F(x)-(i-1)/n`)
+
+D_n = max(D_plus, D_minus)
+
+c(D_plus = D_plus, D_minus = D_minus, D_n = D_n)
+```
+
+$D_n = 0.09611882 > 0.242 = d_{0.05, 30} = 0.242$, we failt to reject the null hypothesis and conclude that the data is uniformly distributed between 0 and 50.
