@@ -1,0 +1,79 @@
+---
+title: "ECON770-Hw4-Simulation"
+author: "Jimmy Zheng"
+date: "2023-09-20"
+output: html_document
+---
+
+Question 2
+
+```{r}
+n <- 800000  # number of simulations
+set.seed(1)
+X <- runif(n)  # simulating from U[0,1]
+Y <- X - X^2
+
+# theoretical density function for Y
+f_Y <- function(y) {
+  ifelse(y >= 0 & y < 0.25, 2 / sqrt(1 - 4*y), 0)
+}
+
+y_vals <- seq(0, 0.25, length.out = 1000)
+density_vals <- sapply(y_vals, f_Y)
+
+# Plotting
+hist(Y, probability=TRUE, breaks=200, main="Density of Y", xlab="y", ylab="Density", ylim=c(0, max(density_vals)))
+lines(y_vals, density_vals, col="red", lwd=1)
+```
+
+```{r}
+y_vals <- seq(-0.25, 0.25, by=0.0001)
+cdf_Y <- sapply(y_vals, function(y) mean(Y <= y))
+
+plot(y_vals, cdf_Y, type="l", xlab="y", ylab="CDF", main="CDF of Y")
+```
+
+
+```{r}
+median(Y)
+
+mean(Y)
+3/16
+```
+
+Question 3
+
+```{r}
+p <- 0.3889798877867867  # Let's assume some value for p. You can change it.
+j_values <- 0:800000
+probabilities <- (1-p) * p^j_values
+sum(probabilities)  # Should be very close to 1 if our sum converges for this large value of j
+
+# Calculate probabilities for Y
+prob_Y_is_1 <- sum(probabilities[j_values %% 2 == 0])  # X is even
+prob_Y_is_minus_1 <- sum(probabilities[j_values %% 2 == 1])  # X is odd
+
+prob_Y_is_1  # Prob(Y = 1)
+prob_Y_is_minus_1  # Prob(Y = -1)
+
+1/(1+p)
+p/(1+p)
+```
+```{r}
+numerator <- sum(j_values[j_values %% 2 == 0] * probabilities[j_values %% 2 == 0])
+denominator <- prob_Y_is_1
+expected_value_X_given_Y_1 <- numerator / denominator
+expected_value_X_given_Y_1
+2*p^2/(1-p^2)
+```
+
+
+
+
+
+
+
+
+
+
+
