@@ -1,0 +1,37 @@
+
+```{r}
+n <- 900000  # Number of simulations
+c <- 2  # Constant
+
+# Initializing variables
+accepted_x <- numeric(0)
+accepted_y <- numeric(0)
+
+# Acceptance-Rejection Method
+for(i in 1:n){
+  x <- runif(1, 0, 1)
+  y <- runif(1, 0, 1)
+  
+  u <- runif(1, 0, 1)
+  
+  if(u <= (x + y) / c){
+    accepted_x <- c(accepted_x, x)
+    accepted_y <- c(accepted_y, y)
+  }
+}
+
+# Calculations
+E_Y <- mean(accepted_y)
+var_X <- var(accepted_x)
+E_XY <- mean(accepted_x * accepted_y)
+E_X <- mean(accepted_x)
+corr_XY <- cor(accepted_x, accepted_y)
+
+# Output the results
+cat("E[Y] =", E_Y, "\n")
+cat("var[X] =", var_X, "\n")
+cat("E[XY] =", E_XY, "\n")
+cat("E[X] =", E_X, "\n")
+cat("corr(X, Y) =", corr_XY, "\n")
+```
+
