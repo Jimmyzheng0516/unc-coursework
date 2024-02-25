@@ -1,0 +1,77 @@
+
+```{r}
+library(readxl)
+library(dplyr)
+library(lmtest)
+library(sandwich)
+
+capm_data <- read_excel("CAPM.xlsx")
+
+sizes = c(1, 2, 9, 10)
+
+for(i in sizes) {
+  size_col_name <- paste0("size", i)
+  val_col_name <- paste0("val", i)
+  capm_data[[paste0("excess_", size_col_name)]] <- capm_data[[size_col_name]] - capm_data$rf
+  capm_data[[paste0("excess_", val_col_name)]] <- capm_data[[val_col_name]] - capm_data$rf
+}
+
+# Run CAPM regression with robust standard errors
+for(i in sizes) {
+  excess_size_col_name <- paste0("excess_size", i)
+  
+  capm_model_size <- lm(formula = paste(excess_size_col_name, "~ rmrf"), data = capm_data)
+  
+  summary_robust_size <- coeftest(capm_model_size, vcov. = vcovHC(capm_model_size, type = "HC0"))
+  
+  cat("Results for", excess_size_col_name, ":\n")
+  print(summary_robust_size)
+  cat("\n")
+}
+
+for(i in sizes) {
+  excess_val_col_name <- paste0("excess_val", i)
+  
+  capm_model_val <- lm(formula = paste(excess_val_col_name, "~ rmrf"), data = capm_data)
+  
+  summary_robust_val <- coeftest(capm_model_val, vcov. = vcovHC(capm_model_val, type = "HC0"))
+  
+  cat("Results for", excess_val_col_name, ":\n")
+  print(summary_robust_val)
+  cat("\n")
+}
+```
+
+```{r}
+capm_data$SMB <- capm_data$size1 - capm_data$size10 
+capm_data$HML <- capm_data$val10 - capm_data$val1  
+
+# Fama-French three-factor model
+for(i in sizes) {
+  excess_size_col_name <- paste0("excess_size", i)
+  
+  ff_model_size <- lm(formula = paste(excess_size_col_name, "~ rmrf + SMB + HML"), data = capm_data)
+
+  summary_robust_ff_size <- coeftest(ff_model_size, vcov. = vcovHC(ff_model_size, type = "HC0"))
+  
+  cat("Results for", excess_size_col_name, ":\n")
+  print(summary_robust_ff_size)
+  cat("\n") 
+}
+
+for(i in sizes) {
+  excess_val_col_name <- paste0("excess_val", i)
+  
+  ff_model_val <- lm(formula = paste(excess_val_col_name, "~ rmrf + SMB + HML"), data = capm_data)
+
+  summary_robust_ff_val <- coeftest(ff_model_val, vcov. = vcovHC(ff_model_val, type = "HC0"))
+  
+  cat("Results for", excess_val_col_name, ":\n")
+  print(summary_robust_ff_val)
+  cat("\n")
+}
+```
+
+
+
+
