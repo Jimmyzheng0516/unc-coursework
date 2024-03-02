@@ -1,0 +1,37 @@
+
+```{r}
+library(readxl)
+library(zoo)
+library(dplyr)
+
+# Import Data
+data_fama_french_factors <- read_excel("FAMA French 3 Factors monthly 2020.xlsx")
+
+data_return <- read_excel("WMT-AAPL-MCD-return-data.xlsx")
+
+# Create variables and delete unnecessary variables
+data_fama_french_factors = data_fama_french_factors[, -1]
+
+data_return$date = as.yearmon(as.Date(data_return$date))
+
+data_fama_french_factors$date = unique(data_return$date)
+
+# Merge data
+reg_data <- data_return %>%
+  left_join(data_fama_french_factors, by = "date")
+
+reg_data$excess_r_it = reg_data$r_it - reg_data$RF
+
+# Run the regression
+firm_names = unique(reg_data$ticker)
+
+for (i in firm_names){
+  
+  famma_french_model = lm(formula = excess_r_it ~ `Mkt-RF` + SMB + HML, data = reg_data[reg_data$ticker == i, ])
+  
+  cat("Results for", i, ":\n")
+  print(summary(famma_french_model))
+  cat("\n")
+}
+```
+
