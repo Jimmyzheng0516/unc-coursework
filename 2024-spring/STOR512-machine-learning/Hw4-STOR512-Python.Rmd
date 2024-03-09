@@ -1,0 +1,26 @@
+
+```{r}
+library(e1071)
+library(readxl)
+
+# Assuming your Excel file is in the current working directory and named 'diabetes-hw4.xls'
+data <- read_excel("diabetes-hw4.xls")
+
+data$Outcome <- as.factor(ifelse(data$Outcome == "YES", 1, -1))
+
+# Extracting features and outcomes
+features <- data[, -ncol(data)] # assuming the last column is the outcome
+outcome <- data$Outcome
+
+# Train the SVM model
+svm_model <- svm(outcome ~ ., data = data, type = 'C-classification', kernel = 'linear', scale = FALSE)
+
+?svm()
+# Print the model summary
+print(svm_model)
+
+svm_model$coefs
+
+svm_model$rho
+```
+
