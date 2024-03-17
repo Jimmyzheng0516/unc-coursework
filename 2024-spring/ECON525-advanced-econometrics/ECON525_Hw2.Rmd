@@ -1,0 +1,49 @@
+
+```{r}
+library(readxl)
+library(dplyr)
+
+FAMA_Mcbeth <- as.data.frame(read_excel("FAMA_Mcbeth.xlsx"))
+```
+
+```{r}
+results.1st <- data.frame(Portfolio = character(), Alpha = numeric(), Beta_Mkt = numeric(), Beta_Inf = numeric(), Beta_PCE = numeric(), Adj_R2 = numeric(), stringsAsFactors = FALSE)
+
+# Run 25 regressions for the 1st stage
+for (i in 2:26) {
+  
+  excess_R_it = FAMA_Mcbeth[, i] - FAMA_Mcbeth$RF # compute excess returns
+  
+  model <- lm(excess_R_it ~ FAMA_Mcbeth$`Mkt-RF` + FAMA_Mcbeth$CPIAUCSL_PCH + FAMA_Mcbeth$PCE_PCH)
+  
+  summary_model <- summary(model)
+  
+  # Store results
+  results.1st <- rbind(results.1st, data.frame(Portfolio = colnames(FAMA_Mcbeth)[i], Alpha = coef(model)[1], Beta_Mkt = coef(model)[2], Beta_Inf = coef(model)[3], Beta_PCE = coef(model)[4], Adj_R2 = summary_model$adj.r.squared))
+}
+```
+
+```{r}
+library(lmtest)
+library(sandwich)
+
+# Calculate average returns for each portfolio
+average_returns <- colMeans(FAMA_Mcbeth[, 2:26])
+
+data_2nd_reg = as.data.frame(cbind(average_returns, 
+                                   Beta_Mkt = results.1st$Beta_Mkt, 
+                                   Beta_Inf = results.1st$Beta_Inf, 
+                                   Beta_PCE = results.1st$Beta_PCE))
+
+# Run the 2nd stage regression
+model_2nd <- lm(average_returns ~ Beta_Mkt + Beta_Inf + Beta_PCE, data = data_2nd_reg)
+
+# Newey-West standard errors
+nw_se <- NeweyWest(model_2nd, lag = NULL, prewhite = FALSE, adjust = TRUE)
+
+coeftest(model_2nd, vcov = NeweyWest(model_2nd, lag = 1, prewhite = FALSE, adjust = FALSE))
+```
+
+
+
+
