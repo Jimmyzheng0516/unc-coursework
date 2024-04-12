@@ -1,0 +1,118 @@
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(zoo)
+library(dplyr)
+library(tidyr)
+
+real_pce_decomp <- read_excel("real-pce-decomp.xlsx")
+bank_reserv_asset <- read_excel("commercial-banks-reserve-asset-ratio.xlsx")
+```
+
+# Real PCE Decomposition
+
+```{r}
+# Convert the date to year_month format
+real_pce_decomp$date <- as.yearmon(real_pce_decomp$date, format = "%Y-%m")
+
+real_pce_decomp$date = as.Date(real_pce_decomp$date)
+
+new_names <- c("Real PCE: Durable Goods", "Real PCE: Service", "Real PCE: Nondurable Goods")
+
+long_pce_decomp <- pivot_longer(real_pce_decomp, 
+                                cols = c(pce_dur, pce_serv, pce_ndur), 
+                                names_to = "variable", 
+                                values_to = "value") %>%
+  mutate(variable = factor(variable, levels = c("pce_dur", "pce_serv", "pce_ndur"), labels = new_names))
+
+# Create the plot using ggplot2
+plot <- ggplot(data = long_pce_decomp, aes(x = date, y = value, color = variable)) +
+  geom_line(size = 0.7) +
+  geom_point(size = 2.3) + 
+  labs(x = "Date", y = "YoY% Change", color = "Legend") +
+  theme_linedraw() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(face = "bold"),
+        legend.position = "bottom",
+        legend.text = element_text(face = "bold", size = 12),
+        axis.text.x = element_text(angle = 35, hjust = 1)) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") + 
+  guides(color = guide_legend(title = NULL))
+
+# Save the plot as a PNG file with customized size
+ggsave("real_pce_decomp_plot.png", plot = plot, width = 10, height = 7, dpi = 500)
+```
+
+# Commerical Banks: Reserve-Asset-Ratio
+
+```{r}
+names(bank_reserv_asset)
+```
+
+
+
+```{r}
+# Convert the date to year_month format
+bank_reserv_asset$date <- as.yearmon(bank_reserv_asset$date, format = "%Y-%m")
+
+bank_reserv_asset$date = as.Date(bank_reserv_asset$date)
+
+# Creating the plot
+p <- ggplot(bank_reserv_asset, aes(x = date, y = Reserve_Asset_Ratio, group = 1)) +
+  geom_line(size = 0.7, color = "navy") +  # Set line color to navy
+  geom_point(size = 2.3, color = "navy") + # Set point color to navy
+  labs(x = "Date", y = "Ratio") +
+  theme_linedraw() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(face = "bold"),
+        legend.position = "bottom",
+        legend.text = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 35, hjust = 1)) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+  guides(color = guide_legend(title = NULL)) +
+  geom_hline(yintercept = 0.12, linetype = "dashed", color = "red", size = 0.7) +
+  #geom_hline(yintercept = 0.10, linetype = "dashed", size = 0.7) +
+  #geom_hline(yintercept = 0.15, linetype = "dashed", size = 0.7) +
+  geom_text(aes(x = as.Date("2022-05-01"), y = 0.17, label = "Reserve / Asset for Commercial Banks"), color = "navy", hjust = 0, vjust = 0, angle = 0, size = 5) +
+  scale_y_continuous(breaks = c(seq(from=0.10, to = 0.19, by = 0.02)))  # Ensure y-values for dotted lines are marked
+
+
+# Save the plot as a PNG file with customized size
+ggsave("bank_reserv_asset_plot.png", plot = p, width = 10, height = 7, dpi = 500)
+```
+
+
+```{r}
+# Convert the data to a long format for easier plotting of multiple time series
+bank_reserv_asset_long <- pivot_longer(bank_reserv_asset, 
+                                       cols = c("pct_change_asset", "pct_change_reserve"), 
+                                       names_to = "Variable", 
+                                       values_to = "Value")
+
+# Creating the plot
+p <- ggplot(bank_reserv_asset_long, aes(x = date, y = Value, color = Variable)) +
+  geom_line(size = 0.7) +
+  geom_point(size = 2.3) +
+  labs(x = "Date", y = "% Change", color = "Legend") +
+  theme_linedraw() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(face = "bold"),
+        legend.position = "bottom",
+        legend.text = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 35, hjust = 1)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 0.6) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+  scale_color_manual(values = c("pct_change_asset" = "navy", "pct_change_reserve" = "red3"),
+                     labels = c("pct_change_asset" = "% Change in Asset (Commercial Banks)", "pct_change_reserve" = "% Change in Reserves (Commercial Banks)")) +
+  guides(color = guide_legend(title = NULL))
+
+ggsave("bank_pct_change_reserv_asset_plot.png", plot = p, width = 10, height = 7, dpi = 500)
+```
+
+
+
+
+
+
+

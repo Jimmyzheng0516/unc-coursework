@@ -1,0 +1,85 @@
+
+```{r}
+library(readxl)
+library(lubridate)
+library(dplyr)
+
+data <- read_excel("Moderna_Pfizer Event Study.xlsx")
+
+data$date <- as.Date(data$`Names Date`)
+
+# Create Excess Returns
+data$R_pfe = data$PFE - data$RF
+data$R_mrna = data$MRNA - data$RF
+```
+
+```{r}
+# Training data for Pfizer
+pfizer_data <- filter(data, date >= as.Date("2019-01-01") & date <= as.Date("2020-12-03"))
+
+# Make sure Moderna has the equal training sample size
+estim_window <- nrow(pfizer_data)
+moderna_end <- as.Date("2020-12-10")
+moderna_end_row <- which(data$date == moderna_end)
+moderna_start_row <- moderna_end_row - estim_window + 1
+
+# Training data for Pfizer Moderna
+moderna_data <- data[moderna_start_row:moderna_end_row, ]
+
+# Run CAPM regressions
+pfizer_capm <- lm(R_pfe ~ `Mkt-RF`, data=pfizer_data)
+moderna_capm <- lm(R_mrna ~ `Mkt-RF`, data = moderna_data)
+
+# Print the regression results
+cat("Pfizer CAPM Results:\n")
+print(summary(pfizer_capm))
+cat("\nModerna CAPM Results:\n")
+print(summary(moderna_capm))
+```
+
+```{r}
+# Define event windows
+pfizer_event_start <- as.Date("2020-12-04")
+moderna_event_start <- as.Date("2020-12-11")
+
+# Filter event window data
+pfizer_event_data <- filter(data, date >= pfizer_event_start)
+moderna_event_data <- filter(data, date >= moderna_event_start)
+
+# Calculate predicted returns using CAPM beta coefficients
+pfizer_event_data$r_hat <- predict(pfizer_capm, newdata = pfizer_event_data)
+moderna_event_data$r_hat <- predict(moderna_capm, newdata = moderna_event_data)
+
+# Calculate abnormal returns
+pfizer_event_data$ar <- pfizer_event_data$R_pfe - pfizer_event_data$r_hat
+moderna_event_data$ar <- moderna_event_data$R_mrna - moderna_event_data$r_hat
+
+# Print the first 20 AR's
+cat("First 20 AR's for Pfizer \n")
+pfizer_event_data$ar[1:20]
+
+cat("First 20 AR's for Moderna \n")
+moderna_event_data$ar[1:20]
+```
+
+```{r}
+# Calculate cumulative abnormal returns
+pfizer_event_data$car <- cumsum(pfizer_event_data$ar)
+moderna_event_data$car <- cumsum(moderna_event_data$ar)
+
+# Days of interest
+days_of_interest <- c(5, 10, 15, 20)
+
+# Extract CAR values
+pfizer_CAR_values <- pfizer_event_data$car[days_of_interest]
+moderna_CAR_values <- moderna_event_data$car[days_of_interest]
+
+# Print the cumulative abnormal returns
+cat("Cumulative Abnormal Returns for Pfizer:\n")
+cat(sprintf("CAR for %d days: %.3f\n", days_of_interest, pfizer_CAR_values))
+
+cat("\nCumulative Abnormal Returns for Moderna:\n")
+cat(sprintf("CAR for %d days: %.3f\n", days_of_interest, moderna_CAR_values))
+```
+
+
