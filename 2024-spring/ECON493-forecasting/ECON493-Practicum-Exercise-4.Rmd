@@ -1,0 +1,115 @@
+
+```{r}
+library(readr)
+Zheng_Zhengtai_exercise3 <- read_csv("Zheng_Zhengtai_exercise3.csv", show_col_types = F)
+
+names(Zheng_Zhengtai_exercise3)
+```
+
+```{r}
+library(dplyr)
+library(purrr)
+
+# Define the columns to check
+rate_columns <- c("iorb", "disct", "ffr", "repo")
+
+# Function to identify rows to remove based on zeros and their context
+check_rows_to_remove <- function(data, col) {
+  # Identify rows where the value is zero
+  zeros <- data[[col]] == 0
+  # Identify NA values
+  nas <- is.na(data[[col]])
+  # Find zeros near NAs (previous or next row)
+  near_nas <- c(FALSE, nas[-length(nas)]) | c(nas[-1], FALSE)
+  
+  # Check for isolated zeros
+  isolated_zeros <- zeros & !c(zeros[-1], FALSE) & !c(FALSE, zeros[-length(zeros)])
+  
+  # Define a threshold for significant difference
+  threshold <- 0.1 # Changeable percentage; here it means 10%
+  prev_values <- c(NA, data[[col]][-length(data[[col]])])
+  next_values <- c(data[[col]][-1], NA)
+  
+  # Find zeros significantly different from neighbors
+  significant_diff <- zeros & (
+    (abs(data[[col]] - prev_values) / prev_values > threshold | is.na(prev_values)) |
+    (abs(data[[col]] - next_values) / next_values > threshold | is.na(next_values))
+  )
+  
+  # Combine all criteria
+  bad_indices <- which(near_nas | isolated_zeros | significant_diff)
+  bad_indices
+}
+
+# Apply function to each column and combine indices
+bad_rows <- map(rate_columns, ~check_rows_to_remove(Zheng_Zhengtai_exercise3, .x)) %>%
+  unlist() %>%
+  unique()
+
+# Remove bad rows
+Zheng_Zhengtai_exercise3_cleaned <- Zheng_Zhengtai_exercise3[-bad_rows, ]
+
+write.xlsx(Zheng_Zhengtai_exercise3_cleaned, file = "Zheng_Zhengtai_exercise3.xlsx")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+
+library(readxl)
+Zheng_Zhengtai_exercise3 <- read_excel("Zheng_Zhengtai_exercise3.xlsx")
+
+# Ensure the date column is treated as a Date object
+Zheng_Zhengtai_exercise3_cleaned$date <- as.Date(Zheng_Zhengtai_exercise3_cleaned$date, format = "%Y-%m-%d")
+
+# Ploting
+ggplot(data = Zheng_Zhengtai_exercise3_cleaned, aes(x = date)) +
+  theme_linedraw() + 
+  geom_line(aes(y = iorb, color = "IORB", linetype = "IORB"), size = 0.7) +
+  geom_line(aes(y = disct, color = "Discount Rate", linetype = "Discount Rate"), size = 0.7) +
+  geom_line(aes(y = ffr, color = "FFR", linetype = "FFR"), size = 0.7) +
+  geom_line(aes(y = repo, color = "Repo Rate", linetype = "Repo Rate"), size = 0.7) +
+  scale_color_manual(values = c("IORB" = "blue", "Discount Rate" = "purple", "FFR" = "red", "Repo Rate" = "green2")) +
+  scale_linetype_manual(values = c("IORB" = "longdash", "Discount Rate" = "dashed", "FFR" = "solid", "Repo Rate" = "twodash")) +
+  labs(title = "Interest Rates Over Time",
+       x = "Date",
+       y = "Interest Rate (%)",
+       color = "Rate Type",
+       linetype = "Rate Type") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(legend.position = "bottom",
+        axis.title.x = element_blank()) 
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Create a comparison vector
+comparison <- Zheng_Zhengtai_exercise3_cleaned$ffr > Zheng_Zhengtai_exercise3_cleaned$iorb
+
+above_count <- sum(comparison, na.rm = TRUE)
+below_count <- sum(!comparison, na.rm = TRUE)  
+
+plot_data <- data.frame(
+  Condition = c("FFR Above IORB", "FFR Below or Equal to IORB"),
+  Count = c(above_count, below_count)
+)
+
+# Calculate percentages
+total_counts <- sum(plot_data$Count)
+plot_data$Percentage <- plot_data$Count / total_counts * 100
+
+# Create the pie chart
+ggplot(plot_data, aes(x = "", y = Count, fill = Condition)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove extra elements
+  scale_fill_manual(values = c("FFR Above IORB" = "red2", "FFR Below or Equal to IORB" = "steelblue2")) +
+  labs(title = "Percentage of Time FFR is Above vs Below IORB",
+       fill = "Condition") +
+  geom_text(aes(label = sprintf("%.1f%%", Percentage)), position = position_stack(vjust = 0.5))
+```
+
+
+

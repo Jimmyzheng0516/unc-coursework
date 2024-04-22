@@ -1,0 +1,59 @@
+
+```{r}
+library(readxl)
+library(dplyr)
+library(openxlsx)
+
+ffr <- read_excel("DFF.xls", col_names = FALSE)
+disct <- read_excel("DPCREDIT.xls", col_names = FALSE)
+ioer <- read_excel("IOER.xls", col_names = FALSE)
+iorb <- read_excel("IORB.xls", col_names = FALSE)
+repo <- read_excel("RRPONTSYAWARD.xls", col_names = FALSE)
+
+# Function to truncate dataframes and rename columns
+truncate_and_format_data <- function(df, name) {
+  
+  # Identify the row where the first column has 'observation_date'
+  start_row <- which(df[[1]] == "observation_date")
+  
+  if (length(start_row) > 0) {
+    df <- df[(start_row + 1):nrow(df), ]
+  }
+  
+  # Rename columns and convert date
+  if (ncol(df) >= 2) {
+    colnames(df) <- c("date", name)
+    df$date <- as.Date(as.numeric(df$date), origin = "1899-12-30")
+  }
+  return(df)
+}
+
+# Apply the truncation and formatting function
+ffr <- truncate_and_format_data(ffr, "ffr")
+disct <- truncate_and_format_data(disct, "disct")
+ioer <- truncate_and_format_data(ioer, "x")
+iorb <- truncate_and_format_data(iorb, "x")
+repo <- truncate_and_format_data(repo, "repo")
+
+# Merge interest rates on reserves
+iorb = rbind(ioer, iorb)
+colnames(iorb) = c("date", "iorb")
+
+# Combine three interest rates
+joined_data <- iorb %>%
+  left_join(disct, by = "date") %>%
+  left_join(ffr, by = "date") %>%
+  left_join(repo, by = "date")
+
+joined_data = joined_data %>%
+  mutate(
+    iorb = as.double(iorb),
+    disct = as.double(disct),
+    ffr = as.double(ffr),
+    repo = as.double(repo)
+  )
+
+
+write.csv(joined_data, file = "Zheng_Zhengtai_exercise3.csv", row.names = F)
+```
+
