@@ -1,0 +1,95 @@
+
+```{r}
+ads_Index <- read_excel("~/Desktop/ADS_Index_Most_Current_Vintage (2).xlsx")
+```
+
+```{r}
+# Assuming ads_Index is your data frame and date is the column with date characters
+ads_Index$date <- as.Date(ads_Index$...1, format="%Y:%m:%d")
+
+ads_Index$ads_3month <- rollmean(ads_Index$ADS_Index, 90, fill=NA, align='right')
+
+ads_Index$ads_3month_change <- c(NA, diff(ads_Index$ads_3month))
+
+ads_Index = ads_Index[, -c(1,2)]
+
+ads_Index = na.omit(ads_Index)
+
+ads_Index = ads_Index[, -2]
+```
+
+```{r}
+write.csv(ads_Index, file = "ads_Index.csv", row.names = F)
+```
+
+```{r}
+nasdaq_and_interest <- read_csv("fredgraph.csv", show_col_types = F)
+```
+
+```{r}
+nasdaq_and_interest$date = as.Date(nasdaq_and_interest$date, format="%Y/%m/%d")
+```
+
+```{r}
+nasdaq_close = read_csv("nasdaq_close.csv", show_col_types = F)
+
+nasdaq_close$date = as.Date(nasdaq_close$date, format = "%Y-%m-%d")
+
+nasdaq_close$nasdaq_close = as.numeric(nasdaq_close$nasdaq_close)
+```
+
+```{r}
+nasdaq_close = na.omit(nasdaq_close)
+```
+
+```{r}
+library(TTR)
+library(quantmod)
+
+nasdaq_close$rsi <- RSI(nasdaq_close$nasdaq_close, n=10)
+nasdaq_close$ema <- EMA(nasdaq_close$nasdaq_close, n=20)
+nasdaq_close$sma <- SMA(nasdaq_close$nasdaq_close, n=20)
+nasdaq_close$macd <- MACD(nasdaq_close$nasdaq_close)
+nasdaq_close$stoc_fastk =  stoch(nasdaq_close$nasdaq_close)[, 1]
+nasdaq_close$stoc_slowd =  stoch(nasdaq_close$nasdaq_close)[, 3]
+nasdaq_close$stoc_fastd =  stoch(nasdaq_close$nasdaq_close)[, 2]
+```
+
+```{r}
+process_data = ads_Index %>%
+  left_join(nasdaq_and_interest, by = "date")
+```
+
+```{r}
+process_data = nasdaq_close %>%
+  left_join(process_data, by = "date")
+```
+
+```{r}
+process_data = na.omit(process_data)
+```
+
+```{r}
+process_data = process_data %>%
+  dplyr::select(-nasdaq_close)
+```
+
+```{r}
+process_data = process_data %>%
+  mutate(nasdaq_prch = 100*(nasdaq_p - lag(nasdaq_p))/lag(nasdaq_p))
+```
+
+```{r}
+process_data = process_data %>%
+  dplyr::select(-nasdaq_p)
+```
+
+```{r}
+process_data = na.omit(process_data)
+```
+
+```{r}
+write.csv(process_data, file = "weekly-nasdaq-return-project.csv", row.names = F)
+```
+
+
