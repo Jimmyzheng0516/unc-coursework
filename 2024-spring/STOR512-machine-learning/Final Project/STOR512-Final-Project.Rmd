@@ -1,0 +1,641 @@
+
+```{r}
+pacman::p_load(dplyr, tidyr, readxl, openxlsx, data.table, foreach, doParallel, GAS, LaplacesDemon, vars, fpp, copula, readr, ggplot2, purrr, tidyverse, zoo, gridExtra, lubridate, ggthemes, vars, ISLR2, leaps, stargazer, e1071, nnet, microbenchmark)
+
+raw_data <- read_csv("weekly-nasdaq-return-project.csv", show_col_types = F)
+
+raw_data$date = as.Date(raw_data$date)
+```
+
+```{r}
+names(raw_data)
+```
+
+
+```{r}
+summary(raw_data$nasdaq_prch)
+
+plot.ts(raw_data$nasdaq_prch)
+
+# Categorizing the returns into four classes
+raw_data <- raw_data %>%
+  mutate(nasdaq_cat = (nasdaq_prch > 0)
+  )
+```
+
+```{r}
+lag_data <- raw_data %>%
+  mutate(across(-c(date, nasdaq_cat), lag, default = NA))
+
+lag_data = lag_data[-1, ]
+
+table(lag_data$nasdaq_cat)
+```
+
+
+## Multinomial Regression
+
+### Gradient Descent With a Fixed Learning Rate
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+
+# Prepare the data
+data <- lag_data %>%
+  dplyr::select(-date, -nasdaq_prch) %>%
+  drop_na()
+
+TT <- 1000
+train_data <- data[1:TT, ]
+test_data <- data[(TT + 1):nrow(data), ]
+```
+
+Guess the learning rate of the training data
+
+```{r}
+X <- as.matrix(train_data[, -ncol(train_data)])  
+
+# Calculate X'X
+XTX <- t(X) %*% X
+
+# Compute the maximum eigenvalue of X'X
+eigen_values <- eigen(XTX, only.values = TRUE)$values
+lambda_max <- max(eigen_values)
+
+# Estimate Lipschitz constant
+num_classes <- length(unique(train_data$nasdaq_cat))  
+L <- (1 / 4) * lambda_max
+
+1/L
+```
+
+```{r}
+# Define the logistic sigmoid function
+sigmoid <- function(z) {
+  return(1 / (1 + exp(-z)))
+}
+
+# Log likelihood function
+log_likelihood <- function(pred, y) {
+  return(-sum(y * log(pred) + (1 - y) * log(1 - pred)) / length(pred))
+}
+
+# Gradient descent with a fixed learning rate for logistic regression
+gd_fixed_eta <- function(X, y, eta, max_iter, tol = 1e-10) {
+  n_samples <- nrow(X)
+  n_features <- ncol(X)
+  
+  w <- matrix(0, nrow = n_features, ncol = 1)  # Adjusted for binary classification
+  loss_hist <- numeric(max_iter)
+  error <- numeric(max_iter)
+  
+  timer_start <- proc.time()  # Start the timer
+
+  for (iter in 1:max_iter) {
+    logits <- X %*% w
+    prob <- sigmoid(logits)
+    
+    loss_hist[iter] <- log_likelihood(prob, y)
+    pred <- ifelse(prob > 0.5, 1, 0)
+    error[iter] <- mean(pred != y)
+    
+    if (iter > 1 && abs(loss_hist[iter - 1] - loss_hist[iter]) < tol) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Algorithm converged after %d iterations. Time elapsed: %f seconds. Loss: %f, Training Error: %f\n", iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter]))
+      break
+    }
+    
+    # Gradient calculation for logistic regression
+    grad <- t(X) %*% (prob - y) / n_samples
+    w <- w - eta * grad
+    
+    # If maximum iteration reached without convergence
+    if (iter == max_iter) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Maximum iterations (%d) reached without convergence. Time elapsed: %f seconds. Last Loss: %f, Last Training Error: %f\n",max_iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter]))
+    }
+  }
+  
+  return(list(w = w, loss_hist = loss_hist[1:iter], error = error[1:iter], convg_iter = iter))
+}
+```
+
+
+```{r}
+# Testing different learning rates
+etas <- 1/L
+
+results_gd_fix <- list()
+for (rate in etas) {
+  model_gd_fix <- gd_fixed_eta(as.matrix(train_data[-ncol(train_data)]), 
+                        train_data$nasdaq_cat, 
+                        rate, max_iter = 1e5, tol = 1e-8)
+  
+  results_gd_fix[[as.character(rate)]] <- model_gd_fix
+}
+```
+
+```{r}
+# Plotting results
+plot_data_gd_fix <- data.frame()
+for (rate in names(results_gd_fix)) {
+  iterations <- seq_along(results_gd_fix[[rate]]$loss_hist)
+  plot_data_gd_fix <- rbind(plot_data_gd_fix, data.frame(Iter = iterations, Loss = results_gd_fix[[rate]]$loss_hist,
+                                           Rate = as.factor(as.numeric(rate)), Error = results_gd_fix[[rate]]$error))
+}
+
+# Loss by iteration for each learning rate
+ggplot(plot_data_gd_fix, aes(x = Iter, y = Loss, color = Rate)) +
+  geom_line() +
+  labs(title = "Loss by Iteration for Different Learning Rates", x = "Iteration", y = "Loss")
+
+# Error by iteration for each learning rate
+ggplot(plot_data_gd_fix, aes(x = Iter, y = Error, color = Rate)) +
+  geom_line() +
+  labs(title = "Training Error by Iteration for Different Learning Rates", x = "Iteration", y = "Error")
+```
+
+```{r}
+# Calculate testing error for each learning rate
+test_errors <- numeric(length(etas))
+names(test_errors) <- as.character(etas)
+
+for (rate in etas) {
+  w <- results_gd_fix[[as.character(rate)]]$w  # Get the weights for the model
+  logits_test <- as.matrix(test_data[-ncol(test_data)]) %*% w
+  probs_test <- sigmoid(logits_test)
+  predictions_test <- ifelse(probs_test > 0.5, 1, 0)
+  test_errors[as.character(rate)] <- mean(predictions_test != test_data$nasdaq_cat)
+}
+
+# Print out the testing errors for each learning rate
+print(test_errors)
+```
+
+
+### Accelerated Gradient Descent
+
+```{r}
+# Accelerated Gradient Descent for logistic regression
+accelerated_gd <- function(X, y, L_f, max_iter, tol = 1e-8) {
+  n_samples <- nrow(X)
+  n_features <- ncol(X)
+  
+  w <- matrix(0, nrow = n_features, ncol = 1)  # Adjusted for binary classification
+  y_t <- w  # Initialize y_t to w
+  tau_t <- 1
+  loss_hist <- numeric(max_iter)
+  error <- numeric(max_iter)
+  
+  timer_start <- proc.time()  # Start the timer
+
+  for (iter in 1:max_iter) {
+    logits <- X %*% y_t
+    prob <- sigmoid(logits)
+    
+    loss_hist[iter] <- log_likelihood(prob, y)
+    pred <- ifelse(prob > 0.5, 1, 0)
+    error[iter] <- mean(pred != y)
+    
+    grad <- t(X) %*% (prob - y) / n_samples
+    x_next <- y_t - (1 / L_f) * grad
+    
+    if (iter > 1 && abs(loss_hist[iter - 1] - loss_hist[iter]) < tol) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Algorithm converged after %d iterations. Time elapsed: %f seconds. Loss: %f, Training Error: %f\n", iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter]))
+      break
+    }
+    
+    tau_next <- (1 + sqrt(4 * tau_t^2 + 1)) / 2
+    y_t <- x_next + ((tau_t - 1) / tau_next) * (x_next - w)
+    
+    w <- x_next
+    tau_t <- tau_next
+    
+    # If maximum iteration reached without convergence
+    if (iter == max_iter) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Maximum iterations (%d) reached without convergence. Time elapsed: %f seconds. Last Loss: %f, Last Training Error: %f\n",max_iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter]))
+    }
+  }
+  
+  return(list(w = w, loss_hist = loss_hist[1:iter], error = error[1:iter], convg_iter = iter))
+}
+
+# Example usage with L_f as a placeholder for Lipschitz constant
+model_acd <- accelerated_gd(as.matrix(train_data[-ncol(train_data)]), 
+                        train_data$nasdaq_cat, 
+                        L_f = L, max_iter = 1e5, tol = 1e-8)
+```
+
+```{r}
+# Extract the loss and error history from the model output
+iterations <- seq_along(model_acd$loss_hist)
+
+# Create a data frame for plotting
+plot_data_acd <- data.frame(
+  Iter = iterations,
+  Loss = model_acd$loss_hist,
+  Error = model_acd$error
+)
+
+# Plot Loss by iteration
+ggplot(plot_data_acd, aes(x = Iter, y = Loss)) +
+  geom_line() +
+  labs(title = "Loss by Iteration for Accelerated Gradient Descent", x = "Iteration", y = "Loss")
+
+# Plot Error by iteration
+ggplot(plot_data_acd, aes(x = Iter, y = Error)) +
+  geom_line() +
+  labs(title = "Training Error by Iteration for Accelerated Gradient Descent", x = "Iteration", y = "Error")
+```
+
+```{r}
+# Calculate the testing error
+w <- model_acd$w  # Get the weights for the model
+logits_test <- as.matrix(test_data[-ncol(test_data)]) %*% w
+probs_test <- sigmoid(logits_test)
+predictions_test <- ifelse(probs_test > 0.5, 1, 0)
+test_error <- mean(predictions_test != test_data$nasdaq_cat)
+
+# Print out the testing error
+print(paste("Testing Error:", test_error))
+```
+
+### Accelerated Gradient Descent with Backtracking Linesearch
+
+```{r}
+# Accelerated Gradient Descent with backtracking line search for logistic regression
+accelerated_gd_backtracking <- function(X, y, eta, max_iter, tol = 1e-8, beta) {
+  n_samples <- nrow(X)
+  n_features <- ncol(X)
+  
+  w <- matrix(0, nrow = n_features, ncol = 1)  # Initialize weights
+  y_t <- w  # Initialize y_t to w
+  tau_t <- 1
+  loss_hist <- numeric(max_iter)
+  error <- numeric(max_iter)
+  eta_hist <- numeric(max_iter)  # To store eta values over iterations
+  eta <- eta  # Initial learning rate
+  
+  timer_start <- proc.time()  # Start the timer
+
+  for (iter in 1:max_iter) {
+    logits <- X %*% y_t
+    prob <- sigmoid(logits)
+    current_loss <- log_likelihood(prob, y)
+    
+    # Store eta value
+    eta_hist[iter] <- eta
+    
+    if (iter > 1 && current_loss >= loss_hist[iter - 1] && eta > 1e-10) {
+      eta <- eta * beta 
+    }
+
+    loss_hist[iter] <- current_loss
+    pred <- ifelse(prob > 0.5, 1, 0)
+    error[iter] <- mean(pred != y)
+    
+    grad <- t(X) %*% (prob - y) / n_samples
+    x_next <- y_t - eta * grad
+    
+    if (iter > 1 && abs(loss_hist[iter - 1] - loss_hist[iter]) < tol) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Algorithm converged after %d iterations. Time elapsed: %f seconds. Loss: %f, Training Error: %f, Final Eta: %f\n", iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter], eta_hist[iter]))
+      break
+    }
+    
+    tau_next <- (1 + sqrt(4 * tau_t^2 + 1)) / 2
+    y_t <- x_next + ((tau_t - 1) / tau_next) * (x_next - w)
+    
+    w <- x_next
+    tau_t <- tau_next
+    
+    # If maximum iteration reached without convergence
+    if (iter == max_iter) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Maximum iterations (%d) reached without convergence. Time elapsed: %f seconds. Last Loss: %f, Last Training Error: %f, Final Eta: %f\n", max_iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter], eta_hist[iter]))
+    }
+  }
+  
+  return(list(w = w, loss_hist = loss_hist[1:iter], error = error[1:iter], eta_hist = eta_hist[1:iter], convg_iter = iter))
+}
+
+# Example usage with L_f as a placeholder for Lipschitz constant
+model_backtracking <- accelerated_gd_backtracking(as.matrix(train_data[-ncol(train_data)]), 
+                                                  train_data$nasdaq_cat, 
+                                                  eta = 100, max_iter = 1e5, tol = 1e-8, beta = 0.95)
+```
+
+```{r, warning=FALSE}
+library(ggplot2)
+
+# Extract the loss, error, and eta history from the model output
+iterations <- seq_along(model_backtracking$loss_hist)
+plot_data_backtrack <- data.frame(
+  Iter = iterations,
+  Loss = model_backtracking$loss_hist,
+  Error = model_backtracking$error,
+  Eta = model_backtracking$eta_hist
+)
+
+# Plot Loss by iteration
+ggplot(plot_data_backtrack, aes(x = Iter, y = Loss)) +
+  geom_line() +
+  labs(title = "Loss by Iteration", x = "Iteration", y = "Loss")
+
+# Plot Error by iteration
+ggplot(plot_data_backtrack, aes(x = Iter, y = Error)) +
+  geom_line() +
+  labs(title = "Training Error by Iteration", x = "Iteration", y = "Error")
+
+# Plot Eta by iteration
+ggplot(plot_data_backtrack, aes(x = Iter, y = Eta)) +
+  geom_line() +
+  labs(title = "Learning Rate (\u03B7) by Iteration", x = "Iteration", y = "Learning Rate")+
+  scale_x_continuous(limits = c(0, 1000))
+
+# Calculate the testing error
+w <- model_backtracking$w  # Get the weights for the model
+logits_test <- as.matrix(test_data[-ncol(test_data)]) %*% w
+probs_test <- sigmoid(logits_test)
+predictions_test <- ifelse(probs_test > 0.5, 1, 0)
+test_error <- mean(predictions_test != test_data$nasdaq_cat)
+
+# Print out the testing error
+print(paste("Testing Error:", test_error))
+```
+
+### Stochastic Gradient Descent with Mini-Batch
+
+```{r}
+# Mini-Batch Stochastic Gradient Descent with Backtracking Line Search for Logistic Regression
+mini_batch_sgd_backtrack <- function(X, y, batch_size, eta, beta, max_iter, tol = 1e-8) {
+  n_samples <- nrow(X)
+  n_features <- ncol(X)
+  
+  w <- matrix(0, nrow = n_features, ncol = 1)  # Initialize weights
+  loss_hist <- numeric(max_iter)
+  error <- numeric(max_iter)
+  eta_hist <- numeric(max_iter)  # To store eta values over iterations
+  
+  timer_start <- proc.time()  # Start the timer
+
+  for (iter in 1:max_iter) {
+    # Sample a mini-batch
+    set.seed(66666)
+    idx <- sample(1:n_samples, batch_size, replace = T)
+    X_batch <- X[idx,  ]
+    y_batch <- y[idx]
+    
+    logits <- X_batch %*% w
+    prob <- sigmoid(logits)
+    current_loss <- log_likelihood(prob, y_batch)
+    
+    # Store eta value
+    eta_hist[iter] <- eta
+    
+    if (iter > 1 && current_loss >= loss_hist[iter - 1] && eta > 1e-9) {
+      eta <- eta * beta  # Reduce eta if the current loss is not lower than the previous loss
+    }
+    
+    loss_hist[iter] <- current_loss
+    pred <- ifelse(prob > 0.5, 1, 0)
+    error[iter] <- mean(pred != y_batch)
+    
+    # Gradient calculation for logistic regression on the mini-batch
+    grad <- t(X_batch) %*% (prob - y_batch) / batch_size
+    w <- w - eta * grad
+    
+    if (iter > 1 && abs(loss_hist[iter - 1] - loss_hist[iter]) < tol) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Algorithm converged after %d iterations. Time elapsed: %f seconds. Loss: %f, Training Error: %f, Final Eta: %f\n",
+                  iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter], eta_hist[iter]))
+      break
+    }
+    
+    # If maximum iteration reached without convergence
+    if (iter == max_iter) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Maximum iterations (%d) reached without convergence. Time elapsed: %f seconds. Last Loss: %f, Last Training Error: %f, Final Eta: %f\n",
+                  max_iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter], eta_hist[iter]))
+    }
+  }
+  
+  return(list(w = w, loss_hist = loss_hist[1:iter], error = error[1:iter], eta_hist = eta_hist[1:iter], convg_iter = iter))
+}
+```
+
+
+```{r}
+# Parameters
+TT <- nrow(train_data)
+batch_sizes <- round(TT * c(0.3, 0.4, 0.5), 0)
+eta_start <- 1/L
+max_iter <- 1e5
+beta <- 0.95
+
+# Data structure to store results
+results_sgd_back <- list()
+
+# Run model for each batch size and store results
+for (batch_size in batch_sizes) {
+  results_sgd_back[[as.character(batch_size)]] <- mini_batch_sgd_backtrack(
+    as.matrix(train_data[-ncol(train_data)]), 
+    train_data$nasdaq_cat, 
+    batch_size, eta_start, beta, max_iter, tol = 1e-8
+  )
+}
+```
+
+```{r}
+# Plot results and calculate testing error
+plot_data_sgd_back <- data.frame()
+test_errors <- setNames(numeric(length(batch_sizes)), batch_sizes)
+
+for (batch_size in names(results_sgd_back)) {
+  iterations <- seq_along(results_sgd_back[[batch_size]]$loss_hist)
+  plot_data_sgd_back <- rbind(plot_data_sgd_back, data.frame(Iter = iterations, Loss = results_sgd_back[[batch_size]]$loss_hist,
+                                           Error = results_sgd_back[[batch_size]]$error, Eta = results_sgd_back[[batch_size]]$eta_hist,
+                                           BatchSize = as.factor(batch_size)))
+  
+  # Calculate testing error
+  w <- results_sgd_back[[batch_size]]$w
+  logits_test <- as.matrix(test_data[-ncol(test_data)]) %*% w
+  probs_test <- sigmoid(logits_test)
+  predictions_test <- ifelse(probs_test > 0.5, 1, 0)
+  test_errors[batch_size] <- mean(predictions_test != test_data$nasdaq_cat)
+}
+```
+
+
+```{r}
+ggplot(plot_data_sgd_back, aes(x = Iter)) +
+  geom_line(aes(y = Loss, color = BatchSize)) +
+  labs(title = "Loss by Iteration for Different Batch Sizes", y = "Error") 
+```
+
+```{r}
+ggplot(plot_data_sgd_back, aes(x = Iter)) +
+  geom_line(aes(y = Error, color = BatchSize)) +
+  labs(title = "Training Error by Iteration for Different Batch Sizes", y = "Error") 
+
+ggplot(plot_data_sgd_back, aes(x = Iter)) +
+  geom_line(aes(y = Eta, color = BatchSize)) +
+  labs(title = "Eta by Iteration for Different Batch Sizes", y = "Eta")+
+  scale_x_continuous(limits=c(0, 200))
+
+# Print testing errors
+print(test_errors)
+```
+
+### AdapGrad + Mini-batch
+
+```{r}
+library(ggplot2)
+
+# Define the mini-batch SGD with AdaGrad and backtracking line search for logistic regression
+mini_batch_sgd_adagrad_backtrack <- function(X, y, batch_size, eta, beta, max_iter, epsilon = 1e-8, tol = 1e-8) {
+  n_samples <- nrow(X)
+  n_features <- ncol(X)
+  
+  w <- matrix(0, nrow = n_features, ncol = 1)  # Initialize weights
+  v <- matrix(0, nrow = n_features, ncol = 1)  # Initialize sum of squares of gradients
+  
+  loss_hist <- numeric(max_iter)
+  error <- numeric(max_iter)
+  eta_hist <- numeric(max_iter)
+  
+  timer_start <- proc.time()  # Start the timer
+  
+  for (iter in 1:max_iter) {
+    # Sample a mini-batch
+    set.seed(66666)
+    idx <- sample(1:n_samples, batch_size, replace = T)
+    X_batch <- X[idx,  ]
+    y_batch <- y[idx]
+    
+    logits <- X_batch %*% w
+    prob <- sigmoid(logits)
+    current_loss <- log_likelihood(prob, y_batch)
+    
+    loss_hist[iter] <- current_loss
+    pred <- ifelse(prob > 0.5, 1, 0)
+    error[iter] <- mean(pred != y_batch)
+    
+    # Store eta value
+    eta_hist[iter] <- eta
+    
+    if (iter > 1 && current_loss >= loss_hist[iter - 1] && eta > 1e-9) {
+      eta <- eta * beta  # Reduce eta if the current loss is not lower than the previous loss
+    }
+    
+    # Compute gradients for the mini-batch
+    grad <- t(X_batch) %*% (prob - y_batch) / batch_size
+    
+    # Update gradient history
+    v <- v + grad^2
+    
+    # Update weights
+    w_adjustment <- (eta / sqrt(v + epsilon)) * grad
+    w <- w - w_adjustment
+    
+    if (iter > 1 && abs(loss_hist[iter - 1] - loss_hist[iter]) < tol) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Algorithm converged after %d iterations. Time elapsed: %f seconds. Loss: %f, Training Error: %f, Final Eta: %f\n",
+                  iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter], eta_hist[iter]))
+      break
+    }
+    
+    if (iter == max_iter) {
+      time_elapsed <- proc.time() - timer_start  # Calculate elapsed time
+      cat(sprintf("Maximum iterations (%d) reached without convergence. Time elapsed: %f seconds. Last Loss: %f, Last Training Error: %f, Final Eta: %f\n",
+                  max_iter, as.numeric(time_elapsed["elapsed"]), loss_hist[iter], error[iter], eta_hist[iter]))
+    }
+  }
+  
+  return(list(w = w, loss_hist = loss_hist[1:iter], error = error[1:iter], eta_hist = eta_hist[1:iter], convg_iter = iter))
+}
+```
+
+
+```{r}
+# Parameters
+TT <- nrow(train_data)
+batch_sizes <- round(TT * c(0.3, 0.4, 0.5), 0)
+eta_initial <- 1/L  # Initial learning rate for AdaGrad
+beta <- 0.5  # Backtracking line search reduction factor
+max_iter <- 1e6
+epsilon <- 1e-10
+
+# Run model for each batch size and store results
+results_adagrad_backtrack <- list()
+for (batch_size in batch_sizes) {
+  cat("Running mini-batch SGD with AdaGrad and backtracking for batch size:", batch_size, "\n")
+  results_adagrad_backtrack[[as.character(batch_size)]] <- mini_batch_sgd_adagrad_backtrack(
+    as.matrix(train_data[-ncol(train_data)]), 
+    train_data$nasdaq_cat,
+    batch_size, 
+    eta_initial, beta, max_iter, epsilon, tol = 1e-8
+  )
+}
+```
+
+
+```{r}
+# Aggregate results for plotting
+plot_data_adagrad_backtrack <- data.frame()
+for (batch_size in names(results_adagrad_backtrack)) {
+  iterations <- seq_along(results_adagrad_backtrack[[batch_size]]$loss_hist)
+  plot_data_adagrad_backtrack <- rbind(plot_data_adagrad_backtrack, data.frame(
+    Iter = iterations,
+    Loss = results_adagrad_backtrack[[batch_size]]$loss_hist,
+    Error = results_adagrad_backtrack[[batch_size]]$error,
+    Eta = results_adagrad_backtrack[[batch_size]]$eta_hist,
+    BatchSize = as.factor(batch_size)
+  ))
+}
+
+# Plotting Loss, Error, and Eta
+ggplot(plot_data_adagrad_backtrack, aes(x = Iter)) +
+  geom_line(aes(y = Loss, color = BatchSize)) +
+  labs(title = "Loss by Iteration for Different Batch Sizes (AdaGrad with Backtracking)", y = "Loss")
+
+ggplot(plot_data_adagrad_backtrack, aes(x = Iter)) +
+  geom_line(aes(y = Error, color = BatchSize)) +
+  labs(title = "Training Error by Iteration for Different Batch Sizes (AdaGrad with Backtracking)", y = "Error")
+
+ggplot(plot_data_adagrad_backtrack, aes(x = Iter)) +
+  geom_line(aes(y = Eta, color = BatchSize)) +
+  labs(title = "Learning Rate (Eta) by Iteration for Different Batch Sizes (AdaGrad with Backtracking)", y = "Eta") +
+  scale_x_continuous(limits=c(0, 200))
+
+# Calculate and print testing errors for each batch size
+test_errors_adagrad_backtrack <- setNames(numeric(length(batch_sizes)), batch_sizes)
+for (batch_size in batch_sizes) {
+  w <- results_adagrad_backtrack[[as.character(batch_size)]]$w
+  logits_test <- as.matrix(test_data[-ncol(test_data)]) %*% w
+  probs_test <- sigmoid(logits_test)
+  predictions_test <- ifelse(probs_test > 0.5, 1, 0)
+  test_errors_adagrad_backtrack[as.character(batch_size)] <- mean(predictions_test != test_data$nasdaq_cat)
+}
+
+print(test_errors_adagrad_backtrack)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
