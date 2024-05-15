@@ -1,0 +1,1170 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Load datasets and packages
+
+```{r, warning=FALSE}
+pacman::p_load(dplyr, tidyr, readxl, openxlsx, data.table, foreach, doParallel, GAS, LaplacesDemon, vars, fpp, copula, readr, ggplot2, purrr, tidyverse, zoo, gridExtra, lubridate, ggthemes, vars, ISLR2, leaps, stargazer, e1071)
+```
+
+```{r}
+data_sector_market = read_csv("cleaned_data_20240321_with_spy.csv", show_col_types = F)
+
+data_sector_market$date = as.Date(data_sector_market$date)
+```
+
+```{r}
+summary(is.na(data_sector_market$daily_return_factor))
+```
+
+```{r}
+unique(data_sector_market[is.na(data_sector_market$daily_return_factor), ]$ticker)
+```
+
+& data_sector_market$ticker =="AMZN"
+
+```{r}
+plot.ts(na.omit(AMZN$daily_return_factor))
+```
+
+```{r}
+summary(is.na(data_sector_market[is.na(data_sector_market$daily_return_factor) & data_sector_market$ticker =="DLTR", ]$daily_return_factor))
+```
+
+
+# Summary Stastistics
+
+```{r}
+# Create a new dataframe with daily average returns per sector
+daily_avg_sector_returns <- data_sector_market %>%
+  group_by(date, gic_sectors) %>%
+  summarise(avg_r_cc = sum(r_cc*Market_Cap) / sum(Market_Cap), 
+            .groups = 'drop') %>%
+  pivot_wider(names_from = gic_sectors, values_from = avg_r_cc, names_prefix = "sector_")
+
+daily_avg_sector_returns$date = as.Date(daily_avg_sector_returns$date)
+```
+
+```{r}
+combined_stat_data <- data_sector_market %>%
+  dplyr::select(date, spy_r_cc) %>%
+  distinct() %>%
+  left_join(daily_avg_sector_returns, by = "date")
+
+combined_stat_data[, -1] = 100*combined_stat_data[, -1] 
+
+# Define the custom statistics function
+calculate_stats <- function(data) {
+  sapply(data, function(x) c(
+    Mean = mean(x, na.rm = TRUE),
+    Median = median(x, na.rm = TRUE),
+    Std_Dev = sd(x, na.rm = TRUE),
+    Kurtosis = kurtosis(x, na.rm = TRUE),
+    Skewness = skewness(x, na.rm = TRUE),
+    Min = min(x, na.rm = TRUE),
+    Max = max(x, na.rm = TRUE)
+  ))
+}
+
+# Apply the function to the combined data excluding the date column
+stats_summary <- calculate_stats(combined_stat_data[-1])
+
+stats_summary = round(stats_summary, 3)
+
+stats_df <- as.data.frame(t(stats_summary), stringsAsFactors = FALSE)
+
+print(stats_df)
+```
+Market Cap Distribution
+
+```{r}
+library(data.table)
+library(ggplot2)
+
+setDT(data_sector_market)
+
+# Calculate total market capitalization for each date
+total_cap_by_date <- data_sector_market[, .(Total_Cap = sum(Market_Cap, na.rm = TRUE)), by = .(date)]
+
+sector_cap_by_date <- data_sector_market[, .(Sector_Cap = sum(Market_Cap, na.rm = TRUE)), by = .(date, gic_sectors)]
+
+merged_data <- merge(total_cap_by_date, sector_cap_by_date, by = "date")
+
+# Calculate the proportion of each sector's capitalization to the total
+merged_data[, Sector_Proportion := Sector_Cap / Total_Cap]
+
+# Plot the data
+p_sector_market_cap_distribution = ggplot(merged_data, aes(x = date, y = Total_Cap, fill = gic_sectors)) +
+  geom_area(aes(y = Total_Cap * Sector_Proportion, fill = gic_sectors), position = "stack") +
+  geom_line(aes(y = Total_Cap), color = "blue", size = 0.3) +
+  theme_linedraw() +
+  theme(
+    axis.title = element_blank(), 
+  ) +
+  scale_fill_brewer(palette = "Set3", name = "gic_sectors") +  
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y")  
+
+ggsave("p_sector_market_cap_distribution.png", plot = p_sector_market_cap_distribution, width = 8.5, height = 3.5)
+```
+
+Compare with S&P 500
+
+```{r}
+cap_avg_r_cc = data_sector_market %>%
+  group_by(date) %>%
+  summarise(cap_avg_r_cc = sum(r_cc*Market_Cap) / sum(Market_Cap), 
+            .groups = 'drop')
+
+spy_return = data_sector_market %>% 
+  group_by(date) %>%
+  dplyr::select(date, spy_r_cc)
+
+spy_return = unique(spy_return)
+
+cap_avg_r_cc = cap_avg_r_cc %>%
+  left_join(spy_return, by = "date")
+
+cap_avg_r_cc$cum_sum_cap_avg_r_cc = cumsum(cap_avg_r_cc$cap_avg_r_cc)
+cap_avg_r_cc$cum_sum_spy_return = cumsum(cap_avg_r_cc$spy_r_cc)
+
+p_weighted_market_price_vs_spy <- ggplot(cap_avg_r_cc, aes(x = date)) +
+  geom_line(aes(y = cum_sum_cap_avg_r_cc, color = "Sample"), size = 0.5) +
+  geom_line(aes(y = cum_sum_spy_return, color = "S&P 500"), size = 0.5) +
+  theme_linedraw() +
+  theme(
+    axis.title = element_blank(), 
+    legend.position = "right",
+    legend.title = element_blank()
+  ) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_color_manual(values = c("Sample" = "blue", "S&P 500" = "red"))
+
+ggsave("p_weighted_market_price_vs_spy.png", plot = p_weighted_market_price_vs_spy +
+  scale_y_continuous(breaks = seq(-0.5, 2, by = 0.5)), width = 8, height = 3.5)
+```
+
+# Compute Quadrant Statistics
+
+```{r}
+library(data.table)
+library(dplyr)
+
+data_sector_market <- as.data.table(data_sector_market %>% mutate(date = as.Date(date)))
+
+
+N.cc <- 30
+TT.cc <- length(unique(data_sector_market$date))
+
+# Compute the sign of daily returns for each ticker and date, as well as for SPY
+data_sector_market[, r_sign := sign(r_cc)]
+data_sector_market[, spy_r_sign := sign(spy_r_cc)]
+
+dates.c <- unique(data_sector_market$date)[1:TT.cc]
+data_sector_market <- data_sector_market[date %in% dates.c]
+# Create a list to store results
+results_list.cc_spy <- list()
+
+# Unique sectors
+unique_sectors <- unique(data_sector_market$gic_sectors)
+
+# Loop through each sector
+for(sector in unique_sectors) {
+  
+tickers <- data_sector_market[gic_sectors == sector, unique(ticker)]
+dt_temp <- data_sector_market[ticker %in% tickers & gic_sectors == sector, .(ticker, date, r_sign, spy_r_sign)]
+res <- dt_temp[, .(C.cc_t = sum(r_sign == spy_r_sign & r_sign != 0 & spy_r_sign != 0),
+D.cc_t = sum(r_sign != spy_r_sign & r_sign != 0 & spy_r_sign != 0),
+Z.cc_t = sum(r_sign == 0 | spy_r_sign == 0),
+n.cc.t = N.cc),
+by = date]
+# Store results in the list, indexed by the sector
+results_list.cc_spy[[sector]] <- res
+}
+
+results_list.cc_spy <- lapply(results_list.cc_spy, function(x) {
+x[, tau.cc_spy_t := (C.cc_t - D.cc_t) / (n.cc.t)]
+return(x)
+})
+
+results_list.cc_spy <- lapply(results_list.cc_spy, function(x) {
+x[, q.cc_spy_t := {
+q <- (C.cc_t) / (n.cc.t)
+
+q[q == 0] <- 0.00000001
+q[q == 1] <- 0.99999999
+q
+}]
+return(x)
+})
+```
+
+# Average correlation in the market
+
+Combine sector-wise data
+
+```{r}
+combined_data <- rbindlist(results_list.cc_spy, idcol = "id")
+
+combined_data <- combined_data %>%
+  rename(gic_sectors = id)
+
+daily_avg_corr_market <- combined_data %>%
+group_by(date) %>%
+summarise(tau_avg = mean(tau.cc_spy_t, na.rm = TRUE),
+          q_avg = mean(q.cc_spy_t, na.rm = TRUE),
+          C_sum = sum(C.cc_t, na.rm = TRUE),
+          D_sum = sum(D.cc_t, na.rm = TRUE),
+          n_sum = sum(n.cc.t, na.rm = TRUE)) %>%
+rename(tau.cc_t = tau_avg, 
+       q.cc_t = q_avg, 
+       C.cc_t = C_sum, 
+       D.cc_t = D_sum,  
+       n.cc.t = n_sum) %>%
+dplyr::select(date, tau.cc_t, q.cc_t, C.cc_t, D.cc_t, n.cc.t)
+
+# Convert back to data.table
+setDT(daily_avg_corr_market)
+```
+
+Aggregate by Month and Quarter
+
+```{r}
+# Group by year-month
+data_grouped <- daily_avg_corr_market %>%
+mutate(year_month = floor_date(date, "month")) %>%
+group_by(year_month)
+
+monthly_averages <- data_grouped %>%
+summarise(tau.cc_t_avg = mean(tau.cc_t, na.rm = TRUE),
+          q_avg = mean(q.cc_t, na.rm = TRUE),
+          C_sum = sum(C.cc_t, na.rm = TRUE),
+          D_sum = sum(D.cc_t, na.rm = TRUE),
+          n_sum = sum(n.cc.t, na.rm = TRUE))
+
+monthly_averages$year_month = format(monthly_averages$year_month, "%Y-%m")
+
+market_tau_monthly <- rename(monthly_averages, 
+                             year_month = year_month, 
+                             tau.cc_t = tau.cc_t_avg,
+                             q.cc_t = q_avg, 
+                             C.cc_t = C_sum, 
+                             D.cc_t = D_sum,  
+                             n.cc.t = n_sum)
+
+# Remove the first and last month due to incomplete data
+market_tau_monthly = market_tau_monthly[2:(nrow(market_tau_monthly)-1), ]
+
+market_tau_monthly$rho.cc_t = sin(pi/2*market_tau_monthly$tau.cc_t)
+
+# Group by year-quarter
+data_grouped <- daily_avg_corr_market %>%
+  mutate(year_quarter = floor_date(date, "quarter")) %>%
+  group_by(year_quarter)
+
+quarterly_averages <- data_grouped %>%
+  summarise(tau.cc_t_avg = mean(tau.cc_t, na.rm = TRUE),
+            q_avg = mean(q.cc_t, na.rm = TRUE),
+            C_sum = sum(C.cc_t, na.rm = TRUE),
+            D_sum = sum(D.cc_t, na.rm = TRUE),
+            n_sum = sum(n.cc.t, na.rm = TRUE))
+
+market_tau_quarterly <- rename(quarterly_averages, 
+                               year_quarter = year_quarter, 
+                               tau.cc_t = tau.cc_t_avg,
+                               q.cc_t = q_avg, 
+                               C.cc_t = C_sum, 
+                               D.cc_t = D_sum,  
+                               n.cc.t = n_sum)
+
+# Remove the first and last quarters due to incomplete data
+market_tau_quarterly = market_tau_quarterly[2:(nrow(market_tau_quarterly)-1), ]
+
+market_tau_quarterly$rho.cc_t = sin(pi/2 * market_tau_quarterly$tau.cc_t)
+```
+
+# By Sector: Monthly and Quarterly statistics 
+
+```{r}
+data_grouped_sector <- combined_data %>%
+  mutate(year_month = floor_date(date, "month")) %>%
+  group_by(gic_sectors, year_month)
+
+monthly_averages_sector <- data_grouped_sector %>%
+  summarise(
+    tau.cc_t_avg = mean(tau.cc_spy_t, na.rm = TRUE),
+    q_avg = mean(q.cc_spy_t, na.rm = TRUE),
+    C_sum = sum(C.cc_t, na.rm = TRUE),
+    D_sum = sum(D.cc_t, na.rm = TRUE),
+    n_sum = sum(n.cc.t, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+monthly_averages_sector$year_month <- format(monthly_averages_sector$year_month, "%Y-%m")
+
+# Step 3: Create a new data frame for monthly averages
+sector_monthly_avg <- rename(monthly_averages_sector, 
+                             year_month = year_month, 
+                             tau.cc_t = tau.cc_t_avg,
+                             q.cc_t = q_avg, 
+                             C.cc_t = C_sum, 
+                             D.cc_t = D_sum, 
+                             n.cc.t = n_sum)
+
+sector_monthly_avg <- sector_monthly_avg %>%
+  group_by(gic_sectors) %>%
+  filter(row_number() != 1 & row_number() != n()) %>%
+  ungroup()
+
+data_grouped_sector <- combined_data %>%
+  mutate(year_quarter = floor_date(date, "quarter")) %>%
+  group_by(gic_sectors, year_quarter)
+
+quarterly_averages_sector <- data_grouped_sector %>%
+  summarise(
+    tau.cc_t_avg = mean(tau.cc_spy_t, na.rm = TRUE),
+    q_avg = mean(q.cc_spy_t, na.rm = TRUE),
+    C_sum = sum(C.cc_t, na.rm = TRUE),
+    D_sum = sum(D.cc_t, na.rm = TRUE),
+    n_sum = sum(n.cc.t, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+#quarterly_averages_sector$year_quarter <- format(quarterly_averages_sector$year_quarter, "%Y Q%q")
+
+sector_quarterly_avg <- rename(quarterly_averages_sector, 
+                               year_quarter = year_quarter,
+                               tau.cc_t = tau.cc_t_avg,
+                               q.cc_t = q_avg, 
+                               C.cc_t = C_sum, 
+                               D.cc_t = D_sum, 
+                               n.cc.t = n_sum)
+
+sector_quarterly_avg <- sector_quarterly_avg %>%
+  group_by(gic_sectors) %>%
+  filter(row_number() != 1 & row_number() != n()) %>%
+  ungroup()
+```
+
+# Plots
+
+```{r}
+linesize = 0.45
+vtlinesize = 0.6
+textsize = 3
+
+market_tau_monthly$year_month <- as.Date(paste0(market_tau_monthly$year_month, "-30"))
+
+# Create the time series plot with a cubic trend line
+p = ggplot(market_tau_monthly, aes(x = year_month, y = rho.cc_t)) +
+  geom_line(color = "navy") +
+  theme_linedraw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        plot.title = element_text(hjust = 0.5)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(0, 1.15)) + 
+  theme(
+    legend.position = "bottom",  
+    plot.title = element_blank(),  
+    axis.title.x = element_blank(), 
+    axis.title.y = element_blank(),  
+    axis.text.x = element_text(angle = 0, hjust = -0.1, vjust = 1))
+
+ggsave(plot = p, "monthly_rho_tau_market_plot.png", width = 12, height = 4)
+```
+
+```{r}
+linesize = 0.45
+vtlinesize = 0.5
+textsize = 3.2
+
+ets_daily_avg_corr = ets(daily_avg_corr_market$tau.cc_t, model="ANN", alpha = 0.05)
+
+daily_avg_corr_market$tau.cc.ets_t = as.numeric(ets_daily_avg_corr[["fitted"]])
+
+major_events <- data.frame(
+  date = as.Date(c("2008-09-15", "2009-11-15" ,"2010-05-06", "2010-11-15", "2011-08-04", "2012-09-30", "2015-03-15", "2015-12-17","2018-03-22","2020-02-20", "2022-03-17","2023-03-10")),
+  label = c("Lehman Brothers Collapse", "QE1", "Flash Crash", "QE2", "Debt Crises", "QE3", "Monetary Policy Normalization", "First Rate Hikes since 2008","US-China Trade War","COVID Crash","Post-Covid Tightening", "Banking Crisis")
+)
+
+# Create the time series plot with a cubic trend line
+p = ggplot(daily_avg_corr_market, aes(x = date, y = tau.cc.ets_t)) +
+  geom_line(color = "royalblue2") +
+  theme_linedraw() +
+  geom_vline(data = major_events, aes(xintercept = as.numeric(date)), linetype = "dashed", color = "red", linewidth = vtlinesize, alpha = 0.45) +
+  geom_text(data = major_events, aes(x = date, y = rep(c(0.8, 0.67), length.out = length(major_events$label)), label = label), vjust = 0, hjust = 0.5, size = textsize, angle = 10, color = "red", fontface = "bold") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(0, 0.9), breaks = seq(0, 0.9, by = 0.2)) + 
+  theme(
+    legend.position = "bottom",  
+    plot.title = element_blank(),
+    axis.title.x = element_blank(),  
+    axis.title.y = element_blank(), 
+    axis.text.x = element_text(angle = 0, hjust = -0.1, vjust = 1))
+
+ggsave(plot = p, "daily_rho_tau_market_with_events.png", width = 11, height = 4)
+```
+
+By sector
+
+```{r}
+linesize = 0.45
+vtlinesize = 0.6
+textsize = 3
+
+# Apply exponential smoothing
+combined_data <- combined_data %>%
+  group_by(gic_sectors) %>%
+  mutate(tau.cc.ets_t = forecast::ets(tau.cc_spy_t, model="ANN", alpha = 0.015)$fitted) %>%
+  ungroup()
+
+# Create the time series plot with smoothed lines for each sector
+p1 <- ggplot(combined_data, aes(x = date, y = tau.cc.ets_t, color = gic_sectors)) +
+  geom_line(linewidth = 0.28) +
+  theme_linedraw() +
+  geom_vline(data = major_events, aes(xintercept = as.numeric(date)), linetype = "dashed", color = "red", linewidth = vtlinesize, alpha = 0.45) +
+  geom_text(data = major_events, aes(x = date, y = rep(c(0.81, 0.72), length.out = length(major_events$label)), label = label), vjust = 0, hjust = 0.5, size = textsize, angle = 10, color = "red", fontface = "bold") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(-0.05, 0.92), breaks = seq(0, 0.9, by = 0.2)) +
+  theme(
+    legend.position = "right",
+    #legend.text = element_text(face = "bold"),
+    #legend.title = element_text(face = "bold"),
+    plot.title = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 0, hjust = -0.1, vjust = 1)
+  )
+
+ggsave(plot = p1, "daily_rho_tau_sector_with_events.png", width = 11, height = 4)
+```
+
+# VAR Analysis
+
+```{r}
+fishz = function(x){
+0.5 * log((1 + x) / (1 - x))
+}
+
+market_tau_monthly$fishz = fishz(market_tau_monthly$tau.cc_t)
+market_tau_monthly = market_tau_monthly[, c("year_month", "fishz")]
+```
+
+## Import Factors
+
+```{r}
+monthly_factor_data <- read_excel("monthly_factor_data.xlsx")
+
+monthly_factor_data <- monthly_factor_data %>%
+  mutate(date = as.Date(date),
+         year_month = format(date, "%Y-%m"))
+
+monthly_factor_data = monthly_factor_data[, -1]
+```
+
+Merge dataset
+
+```{r}
+market_tau_monthly$year_month = format(market_tau_monthly$year_month, "%Y-%m")
+
+var_data <- market_tau_monthly %>%
+  left_join(monthly_factor_data, by = "year_month")
+
+names(var_data)
+```
+
+## Test for stationarity
+
+```{r, eval=FALSE}
+adf_test_results <- lapply(var_data[, -1] # exclude year_mon column
+                           , function(series) {
+  if (is.numeric(series)) { 
+    adf_test <- adf.test(series, alternative = "stationary")
+    return(list(Statistic = adf_test$statistic, P_Value = adf_test$p.value))
+  } else {
+    return(NA)  # Non-numeric columns are ignored
+  }
+})
+
+stationary_variables <- lapply(adf_test_results, function(result) {
+  result$P_Value < 0.10
+})
+
+cat("Stationary Variables:\n")
+print(names(stationary_variables[stationary_variables == TRUE]))
+
+non_stationary_variables <- lapply(adf_test_results, function(result) {
+  result$P_Value >= 0.10
+})
+
+cat("Non-stationary Variables:\n")
+print(names(non_stationary_variables[non_stationary_variables == TRUE]))
+```
+
+Take difference on non-stationary variables
+
+```{r}
+var_data_diff <- na.omit(var_data)
+```
+
+```{r,eval=FALSE}
+# Determine which columns are numeric (excluding 'year_mon' and 'fishz')
+numeric_cols <- sapply(var_data_diff, is.numeric)
+
+# Loop over the columns, applying diff() to each numeric one except 'year_mon'
+for (col in names(var_data_diff)[numeric_cols == T]) {
+  # Apply diff() and prepend NA to match the length of the original series
+  var_data_diff[[col]] <- (var_data_diff[[col]] - lag(var_data_diff[[col]])) #/ lag(var_data_diff[[col]])
+}
+
+# Exclude the first row of NA
+var_data_diff = var_data_diff[-1, ]
+
+colnames(var_data_diff)
+
+cat("Non-stationary Variables:\n")
+print(names(non_stationary_variables[non_stationary_variables == TRUE]))
+```
+
+Select variables for regression
+
+```{r}
+selected_col = selected_col = colnames(var_data_diff)!="Trade Policy" & colnames(var_data_diff)!="Business Investment And Sentiment" & colnames(var_data_diff)!= "Inflation" & colnames(var_data_diff)!= "Fiscal Policy" & colnames(var_data_diff)!= "Interest Rates" & colnames(var_data_diff)!="year_month" & colnames(var_data_diff)!= "Labor Market"  & colnames(var_data_diff)!="Exchange Rates" & colnames(var_data_diff)!="Consumer Spending and Sentiment"
+
+var_data_diff = var_data_diff[, selected_col]
+```
+
+```{r}
+library(car)
+
+VIF = vif(lm(fishz~., data = var_data_diff)) > 5
+
+vif(lm(fishz~., data = var_data_diff))
+
+colnames(var_data_diff)[-1][VIF == T]
+```
+
+```{r}
+selected_col = colnames(var_data_diff)!="Commodity Market"
+
+var_data_diff = var_data_diff[, selected_col]
+```
+
+## VAR Estimation
+
+```{r}
+VARselect(var_data_diff, lag.max=10, type="const")$selection
+```
+
+```{r}
+var <- VAR(var_data_diff, p=1, type="const")
+summary(var$varresult$fishz)
+```
+
+```{r, eval=FALSE}
+stargazer(var$varresult, type = "latex",
+          style = "qje",
+          summary = FALSE,  
+          header = FALSE)
+```
+
+
+```{r, eval=F}
+summary_var = summary(var)
+
+corres_matrix = summary_var$corres
+covres_matrix = summary_var$covres
+
+stargazer(corres_matrix, type = "latex",
+          title = "Correlation and Covariance Matrices",
+          summary = FALSE,  
+          header = FALSE)   
+```
+
+
+```{r, eval=FALSE}
+stargazer(var$varresult, type = "latex", style = "qje")
+```
+
+```{r}
+set.seed(1)
+var_irf <- irf(var, n.ahead = 11,ortho = TRUE,boot = TRUE, ci = 0.95, cumulative = F)
+```
+
+
+```{r}
+# Extracting the IRF results for 'fishz'
+irf_data <- as.data.frame(var_irf$irf$fishz)
+colnames(irf_data) <- gsub("fishz.", "", colnames(irf_data))  
+
+# Extracting the confidence intervals
+lower_bound <- as.data.frame(var_irf$Lower$fishz)
+upper_bound <- as.data.frame(var_irf$Upper$fishz)
+colnames(lower_bound) <- gsub("fishz.", "", colnames(lower_bound))
+colnames(upper_bound) <- gsub("fishz.", "", colnames(upper_bound))
+```
+
+```{r}
+# Binding the data together for plotting
+irf_data <- irf_data %>% 
+  mutate(time = 1:nrow(irf_data)) %>% 
+  pivot_longer(-time, names_to = "impulse", values_to = "response")
+
+lower_bound <- lower_bound %>% 
+  mutate(time = 1:nrow(lower_bound)) %>% 
+  pivot_longer(-time, names_to = "impulse", values_to = "lower")
+
+upper_bound <- upper_bound %>% 
+  mutate(time = 1:nrow(upper_bound)) %>% 
+  pivot_longer(-time, names_to = "impulse", values_to = "upper")
+
+# Joining all data together
+plot_data <- left_join(irf_data, lower_bound, by = c("time", "impulse"))
+plot_data <- left_join(plot_data, upper_bound, by = c("time", "impulse"))
+```
+
+```{r}
+# Plotting with ggplot2 using facets
+plot <- ggplot(plot_data, aes(x = time, y = response)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "blue", alpha = 0.1) +
+  geom_line(aes(color = impulse), linewidth = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~impulse, scales = "free_y") + 
+  labs(x = "Time Steps", y = "Response of fishz") +  
+  theme_linedraw() +  
+  theme(legend.position = "none",  
+        axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 0.5),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +  
+  scale_x_continuous(breaks = 1:12)
+
+# Save the plot to a file
+ggsave("IRF_plot_fishz.png", plot, device = "png", width = 9, height = 7)
+```
+
+
+# Unexpected Macro Announcements: Quarterly Analysis
+
+## Score-driven Models
+
+```{r}
+log_likelihood_function <- function(params, data){
+  # Unpack parameters
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+  eta <- params[4] # Initial eta
+  
+  logL <- 0 # Initialize log-likelihood
+  
+  for(t in 1:nrow(data)){
+    nt <- data$n[t] # n_t
+    zt <- data$z[t] # Z_t
+    qt <- 1 / (1 + exp(-eta)) # q_t
+    
+    # Log-likelihood for binomial distribution
+    ell_t <- zt * log(qt) + (nt - zt) * log(1 - qt)
+    logL <- logL + ell_t # Accumulate log-likelihood
+    
+    # If there is next time point, update eta
+    if(t < nrow(data)){
+      tilde_st <- (data$hat_q[t] - qt) / (qt * (1 - qt)) # normalized score
+      eta <- omega + beta * eta + alpha * tilde_st # Update eta according to model dynamics
+    }
+  }
+  
+  return(-logL/(77)) 
+}
+
+gradient_function <- function(params, data) {
+  # Unpack parameters
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+  eta <- params[4] # Initial eta
+  
+  # Initialize gradient
+  gradient <- numeric(length(params))
+  
+  for(t in 1:nrow(data)) {
+    nt <- data$n[t] # n_t
+    zt <- data$z[t] # Z_t
+    qt <- 1 / (1 + exp(-eta)) # q_t
+    Delta <- (1/nt) * ((zt - nt) * (qt / (1 - qt)) - zt * ((1 - qt) / qt))
+    st <- (data$hat_q[t] - qt)
+    tilde_st <- (data$hat_q[t] - qt) / (qt * (1 - qt)) # normalized score
+    
+    if(t == 1) {
+      partial_eta <- c(1, 0, 0, 1)
+    } else {
+      # Calculate the partial derivatives of eta_t with respect to the parameters
+      partial_st_minus_1 <- Delta * partial_eta
+      partial_eta <- c(1 + alpha * partial_st_minus_1[1] + beta * partial_eta[1], 
+                       tilde_st + alpha * partial_st_minus_1[2] + beta * partial_eta[2], 
+                       partial_st_minus_1[3] + eta + beta * partial_eta[3], 
+                       alpha * partial_st_minus_1[4] + beta * partial_eta[4])
+    }
+    
+    # Update gradient
+    gradient <- gradient + (st * partial_eta)
+    
+    # If there is next time point, update eta
+    if(t < nrow(data)) {
+      eta <- omega + beta * eta + alpha * tilde_st # Update eta according to model dynamics
+    }
+  }
+  
+  return(-gradient) # Return negative gradient as we are maximizing log-likelihood
+}
+```
+
+```{r}
+library(data.table)
+library(parallel)
+
+# Convert daily_avg_corr_market to a data.table if it's not already one
+setDT(market_tau_quarterly)
+
+initial_params <- c(0, 0, 0, 0)
+
+result <- optim(
+  par = initial_params,
+  fn = log_likelihood_function, 
+  data = market_tau_quarterly[, .(z = C.cc_t, n = n.cc.t, hat_q = q.cc_t)],
+  method = "BFGS",
+  hessian = TRUE
+)
+
+se_values <- sqrt(diag(solve(result$hessian)))
+
+# Create the output data.table
+results_df_gbnores.cc <- data.table(
+  Omega = result$par[1],
+  Alpha = result$par[2],
+  Beta = result$par[3],
+  Eta1 = result$par[4],
+  Value = result$value,
+  SE_Omega = se_values[1],
+  SE_Alpha = se_values[2],
+  SE_Beta = se_values[3],
+  SE_Eta1 = se_values[4]
+)
+
+# Print the results data table
+print(results_df_gbnores.cc)
+```
+
+```{r}
+# Define the function to calculate eta_t
+calculate_eta_t <- function(omega, alpha, z_t_minus_1, n_t_minus_1, q_t_minus_1, beta, eta_t_minus_1) {
+  omega + alpha * (z_t_minus_1 - n_t_minus_1 * q_t_minus_1) / (n_t_minus_1 * q_t_minus_1 * (1 - q_t_minus_1)) + beta * eta_t_minus_1
+}
+
+# Function to process the data
+process_data <- function(data, params) {
+  # Initialize eta_scobino and q
+  data[, eta_scobino := NA_real_]
+  data[1, eta_scobino := params$eta1]
+  data[, q := NA_real_]
+  data[1, q := 1/(1+exp(-params$eta1))]
+
+  # Loop over rows to calculate eta_t and q_t
+  for (t in 2:nrow(data)) {
+    z_t_minus_1 <- data[t - 1, get("C.cc_t")] 
+    n_t_minus_1 <- data[t - 1, get("n.cc.t")] 
+    q_t_minus_1 <- data[t - 1, q]
+    eta_t_minus_1 <- data[t - 1, eta_scobino]
+
+    # Calculate eta_t
+    eta_t <- calculate_eta_t(params$omega, params$alpha, z_t_minus_1, n_t_minus_1, q_t_minus_1, params$beta, eta_t_minus_1)
+    
+    # Store eta_t and calculate q_t
+    data[t, eta_scobino := eta_t]
+    data[t, q := 1/(1+exp(-eta_t))]
+    
+    # Calculate tau_t from estimated q_t
+    data[t, tau.cc_model := 2 * q - 1]
+  }
+  
+  return(data)
+}
+
+params <- results_df_gbnores.cc[, .(omega = Omega, alpha = Alpha, beta = Beta, eta1 = Eta1)]
+
+# Calculate Fitted Eta
+market_tau_quarterly <- process_data(market_tau_quarterly, params)
+
+market_tau_quarterly$year_quarter = paste(format(market_tau_quarterly$year_quarter, "%Y"), 
+                                        "/Q", 
+                                        lubridate::quarter(market_tau_quarterly$year_quarter), 
+                                        sep = "")
+```
+
+## Import Factors
+
+```{r}
+macro_surprise <- read_excel("macro_surprise.xlsx")
+```
+
+Merge data
+
+```{r}
+surprise_data = market_tau_quarterly %>%
+  left_join(macro_surprise, by = "year_quarter")
+
+# Indicator of macro expansion or contraction
+surprise_data$CFNAI_recess = (surprise_data$CFNAI < -0.7)
+
+names(surprise_data)
+```
+
+Create Standardized Scores of Macro Announcements
+
+```{r}
+# Standardized Score
+surprise_data <- surprise_data %>%
+  mutate(
+    s_cpi = (A_CPI - E_CPI) / sd(A_CPI - E_CPI),
+    s_gdp = (A_NGDP - E_NGDP) / sd(A_NGDP - E_NGDP),
+    s_unemploy = (A_UNEMPLOYMENT - E_UNEMPLOYMENT) / sd(A_UNEMPLOYMENT - E_UNEMPLOYMENT),
+    s_tbill = (A_TBILL - E_TBILL) / sd(A_TBILL - E_TBILL),
+    s_tbond = (A_TBOND - E_TBOND) / sd(A_TBOND - E_TBOND))
+```
+
+## Regression 
+
+```{r}
+model_all = lm(eta_scobino ~  abs(s_cpi)*CFNAI_recess + abs(s_gdp)*CFNAI_recess + abs(s_unemploy)*CFNAI_recess + abs(s_tbill)*CFNAI_recess + abs(s_tbond)*CFNAI_recess,
+               data = surprise_data)
+
+summary(model_all)
+```
+
+```{r, eval=FALSE}
+# For LaTeX format (common in economic journals), use type = "latex"
+stargazer(model_all, type = "latex", style = "qje")
+
+?stargazer()
+```
+
+```{r, eval=FALSE}
+model_cpi = lm(eta_scobino ~ abs(s_cpi)*CFNAI_recess,
+               data = surprise_data)
+summary(model_cpi)
+
+model_gdp = lm(eta_scobino ~ abs(s_gdp)*CFNAI_recess,
+               data = surprise_data)
+summary(model_gdp)
+
+model_unemploy = lm(eta_scobino ~ abs(s_unemploy)*CFNAI_recess,
+               data = surprise_data)
+summary(model_unemploy)
+
+model_tbill = lm(eta_scobino ~ abs(s_tbill)*CFNAI_recess,
+               data = surprise_data)
+summary(model_tbill)
+
+model_tbond = lm(eta_scobino ~ abs(s_tbond)*CFNAI_recess,
+               data = surprise_data)
+summary(model_tbond)
+```
+
+## Plots
+
+Announcement Scores
+
+```{r}
+time_series_data <- surprise_data %>%
+  dplyr::select(year_quarter, s_cpi, s_gdp, s_unemploy, s_tbill, s_tbond)
+
+long_data <- time_series_data %>%
+  pivot_longer(cols = -year_quarter, names_to = "series", values_to = "value")
+
+long_data$year_quarter <- as.Date(
+  x = paste0(substring(long_data$year_quarter, 1, 4), "-", 
+             ifelse(grepl("Q1", long_data$year_quarter), "01-01",
+             ifelse(grepl("Q2", long_data$year_quarter), "04-01",
+             ifelse(grepl("Q3", long_data$year_quarter), "07-01",
+             ifelse(grepl("Q4", long_data$year_quarter), "10-01", NA)))), 
+  tz = "UTC"))
+
+
+# Plotting the data
+ggplot(long_data, aes(x = year_quarter, y = value, color = series)) +
+  geom_line() +
+  labs(title = "Economic Indicators Over Time",
+       x = "Date",
+       y = "Series Value",
+       color = "series") +
+  theme_linedraw() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(
+    legend.position = "bottom",  
+    plot.title = element_blank(),  
+    axis.title.x = element_blank(), 
+    axis.title.y = element_blank(),  
+    axis.text.x = element_text(angle = 0, hjust = -0.1, vjust = 1))+
+  labs(color = "Standardized Macro Surprises :")+scale_color_manual(values = c("red", "green", "blue", "purple", "orange"),labels = c("CPI", "GDP", "3 Month T-Bill", "10 Year T-Bond", "Unemployment"))
+
+# Save the plot to a file
+ggsave("score_plot.png", width = 10, height = 6)
+```
+
+Correlations
+
+```{r}
+surprise_data$year_quarter <- as.Date(
+  x = paste0(substring(surprise_data$year_quarter, 1, 4), "-",
+             ifelse(grepl("Q1", surprise_data$year_quarter), "01-01",
+             ifelse(grepl("Q2", surprise_data$year_quarter), "04-01",
+             ifelse(grepl("Q3", surprise_data$year_quarter), "07-01",
+             ifelse(grepl("Q4", surprise_data$year_quarter), "10-01", NA)))),
+  tz = "UTC")
+)
+
+eta_data <- surprise_data %>%
+  dplyr::select(year_quarter, eta_scobino, q, q.cc_t)
+
+eta_data$rho_scobino = sin(pi*(eta_data$q-0.5))
+eta_data$rho_hat = sin(pi*(eta_data$q.cc_t-0.5))
+```
+
+```{r}
+# Create the time series plot with a cubic trend line
+p2 = ggplot(eta_data, aes(x = year_quarter, y = rho_scobino)) +
+  #geom_line(aes(x = year_quarter, y = rho_hat), col = "steelblue1") +
+  geom_line(color = "blue") +
+  labs(x = "Year/Quarter", y = "eta", title = "Time Series of eta") +
+  theme_linedraw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        plot.title = element_text(hjust = 0.5))+
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(0.2, 0.9), breaks = seq(0.2, 0.9, by = 0.2)) + 
+  theme(
+    legend.position = "bottom",  
+    plot.title = element_blank(),  
+    axis.title.x = element_blank(),  
+    axis.title.y = element_blank(), 
+    axis.text.x = element_text(angle = 0, hjust = 0.1, vjust = 1))
+
+ggsave(plot = p2 + scale_y_continuous(limits = c(0.30, 0.75), breaks = seq(0.3, 0.8, by = 0.1)), "quarter_rho_scobino_vs_rho_hat_plot.png", width = 7, height = 3)
+```
+
+CFNAI_data
+
+```{r}
+# Extract the 'eta' and 'year_quarter' columns for plotting
+CFNAI_data <- surprise_data %>%
+  dplyr::select(year_quarter, CFNAI)
+
+# Create the time series plot with a cubic trend line
+ggplot(CFNAI_data, aes(x = year_quarter, y = CFNAI)) +
+  geom_line(color = "navy") +
+  geom_point()+
+  geom_hline(yintercept = 0, linetype="dashed", color = "red")+
+  labs(x = "Year/Quarter", y = "CFNAI", title = "Time Series of CFNAI") +
+  theme_linedraw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        plot.title = element_text(hjust = 0.5))+
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(
+    legend.position = "bottom", 
+    plot.title = element_blank(), 
+    axis.title.x = element_blank(), 
+    axis.title.y = element_blank(), 
+    axis.text.x = element_text(angle = 0, hjust = -0.1, vjust = 1))
+
+ggsave("CFNAI_plot.png", width = 10, height = 6)
+```
+
+# (By Sector) Unexpected Macro Announcements: Quarterly Analysis
+
+```{r}
+library(data.table)
+library(parallel)
+
+setDT(sector_quarterly_avg)
+
+# Define initial parameters
+initial_params <- c(0, 0, 0, 0)
+
+sectors <- unique(sector_quarterly_avg$gic_sectors)
+
+# Set up parallel computing
+num_cores <- detectCores()
+cl <- makeCluster(num_cores)
+clusterExport(cl, list("sector_quarterly_avg", "initial_params", "log_likelihood_function"))
+clusterEvalQ(cl, library(data.table))
+
+# Function to apply optimization per sector
+optimize_sector <- function(sector) {
+  data <- sector_quarterly_avg[gic_sectors == sector, .(z = C.cc_t, n = n.cc.t, hat_q = q.cc_t)]
+  result <- optim(
+    par = initial_params,
+    fn = log_likelihood_function,
+    data = data,
+    method = "BFGS",
+    hessian = TRUE
+  )
+  
+  se_values <- sqrt(diag(solve(result$hessian)))  # Calculate standard errors
+  
+  return(list(
+    Sector = sector,
+    Omega = result$par[1],
+    Alpha = result$par[2],
+    Beta = result$par[3],
+    Eta1 = result$par[4],
+    Value = result$value,
+    SE_Omega = se_values[1],
+    SE_Alpha = se_values[2],
+    SE_Beta = se_values[3],
+    SE_Eta1 = se_values[4]
+  ))
+}
+
+# Run optimization in parallel
+results_list <- parLapply(cl, sectors, optimize_sector)
+stopCluster(cl)
+
+results_df_gbnores_sector.cc <- rbindlist(results_list)
+
+# Print the results data table
+print(results_df_gbnores_sector.cc)
+```
+
+```{r}
+results_df_gbnores.cc$Sector = "All"
+scobino_coef = rbind(results_df_gbnores.cc, results_df_gbnores_sector.cc)
+
+names(scobino_coef)
+
+scobino_coef = scobino_coef %>%
+  dplyr::select(Sector, Omega, SE_Omega, Alpha, SE_Alpha, Beta, SE_Beta, Value)
+
+```
+
+
+```{r}
+library(data.table)
+
+setDT(sector_quarterly_avg)
+setDT(results_df_gbnores_sector.cc)
+
+# Loop over each sector
+for(sector in unique(sector_quarterly_avg$gic_sectors)) {
+  
+  params <- results_df_gbnores_sector.cc[Sector == sector, .(omega = Omega, alpha = Alpha, beta = Beta, eta1 = Eta1)]
+  
+  sector_data <- sector_quarterly_avg[gic_sectors == sector]
+  
+  processed_data <- process_data(sector_data, params)
+  
+  if (!exists("fitted_data")) {
+    fitted_data <- processed_data
+  } else {
+    fitted_data <- rbind(fitted_data, processed_data)
+  }
+}
+
+sector_quarterly_avg = fitted_data
+```
+
+```{r}
+sector_quarterly_avg$rho_scobino = sin(pi*(sector_quarterly_avg$q-0.5))
+
+sector_quarterly_avg$year_quarter = as.Date(sector_quarterly_avg$year_quarter)
+```
+
+Plots
+
+```{r}
+# Create the time series plot with smoothed lines for each sector
+p3 <- ggplot(sector_quarterly_avg, aes(x = year_quarter, y = rho_scobino, color = gic_sectors)) +
+  geom_line(linewidth = 0.4) +
+  theme_linedraw() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(
+    legend.position = "right",
+    #legend.text = element_text(face = "bold"),
+    #legend.title = element_text(face = "bold"),
+    plot.title = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 0, hjust = 0.1, vjust = 1)
+  )
+
+ggsave(plot = p3 + scale_y_continuous(limits = c(0.1, 0.9), breaks = seq(0.1, 0.9, by = 0.2)), "quarterly_rho_scobino_sector.png", width = 8.5, height = 3.5)
+```
+
+Merge data 
+
+```{r}
+sector_quarterly_avg$year_quarter = paste(format(sector_quarterly_avg$year_quarter, "%Y"), 
+                                        "/Q", 
+                                        lubridate::quarter(sector_quarterly_avg$year_quarter), 
+                                        sep = "")
+```
+
+
+```{r}
+surprise_data_sector = sector_quarterly_avg %>%
+  left_join(macro_surprise, by = "year_quarter")
+
+# Indicator of macro expansion or contraction
+surprise_data_sector$CFNAI_recess = (surprise_data_sector$CFNAI < -0.7)
+
+names(surprise_data_sector)
+```
+
+Create Standardized Scores of Macro Announcements
+
+```{r}
+# Standardized Score
+surprise_data_sector <- surprise_data_sector %>%
+  mutate(
+    s_cpi = (A_CPI - E_CPI) / sd(A_CPI - E_CPI),
+    s_gdp = (A_NGDP - E_NGDP) / sd(A_NGDP - E_NGDP),
+    s_unemploy = (A_UNEMPLOYMENT - E_UNEMPLOYMENT) / sd(A_UNEMPLOYMENT - E_UNEMPLOYMENT),
+    s_tbill = (A_TBILL - E_TBILL) / sd(A_TBILL - E_TBILL),
+    s_tbond = (A_TBOND - E_TBOND) / sd(A_TBOND - E_TBOND))
+```
+
+## Regression 
+
+```{r}
+sector_model_all = list()
+
+sector_model_all[["All"]] = model_all
+
+for (j in unique(surprise_data_sector$gic_sectors)) {
+  
+  sector_reg_data = surprise_data_sector[surprise_data_sector$gic_sectors == j, ]
+  
+  sector_model_all[[j]] = lm(eta_scobino ~  abs(s_cpi)*CFNAI_recess + abs(s_gdp)*CFNAI_recess + abs(s_unemploy)*CFNAI_recess + abs(s_tbill)*CFNAI_recess + abs(s_tbond)*CFNAI_recess,
+               data = sector_reg_data)
+}
+```
+
+```{r, eval=FALSE}
+stargazer(sector_model_all, type = "text", 
+          title = "Regression Results by Sector",
+          header = FALSE,  
+          font.size = "small",  
+          model.numbers = FALSE,  
+          omit.stat = c("LL", "ser"),  regression
+          column.labels = names(sector_model_all),  
+          digits = 3,  
+          align = TRUE  
+          )
+```
+
+
+
+
+
+
+
+
